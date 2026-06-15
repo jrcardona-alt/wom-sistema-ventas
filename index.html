@@ -286,6 +286,8 @@ textarea.f-input{resize:vertical;min-height:72px;line-height:1.5}
     </div>
     <nav class="sidebar-nav" id="sidebar-nav"></nav>
     <div class="sidebar-footer">
+      <div style="font-size:10px;color:var(--mut);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px">📅 Mes activo</div>
+      <div id="mes-sel-wrap"></div>
       <button class="btn btn-ghost" style="width:100%;font-size:12px" onclick="logout()">🚪 Cerrar sesión</button>
     </div>
   </aside>
@@ -332,7 +334,9 @@ var FB_CFG = {
 var DB_ROOT = "/wom_bpo";
 var DB, ROOT_REF;
 var SESSION = null; // {cedula, nombre, rol, activo}
-var LISTENERS = []; // active firebase listeners to detach on logout
+var LISTENERS = [];
+var mesActivo = "";
+var currentNavId = "";
 
 // ════════════════════════════════════════
 //   COMISIONES + METAS
@@ -370,6 +374,56 @@ var COM_IB = [
 
 // ── COMMISSION HELPERS ────────────────────────────────────────────
 function fCOPk(n){return n>=1000000?'$'+(n/1000000).toFixed(2)+'M':'$'+Math.round(n).toLocaleString('es-CO');}
+
+var MESES_ES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+function getMesActivo(){
+  if(mesActivo)return mesActivo;
+  var s=sessionStorage.getItem('wom_mes');
+  if(s){mesActivo=s;return s;}
+  var n=new Date();
+  var m=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0');
+  mesActivo=m;return m;
+}
+function setMesActivo(val){
+  mesActivo=val;
+  sessionStorage.setItem('wom_mes',val);
+  if(currentNavId)navTo(currentNavId);
+}
+function getMesLabel(yyyymm){
+  var p=yyyymm.split('-');
+  return MESES_ES[parseInt(p[1])-1]+' '+p[0];
+}
+function getMesRange(yyyymm){
+  var p=yyyymm.split('-');
+  var a=parseInt(p[0]),m=parseInt(p[1]);
+  var start=new Date(a,m-1,1).getTime();
+  var end=new Date(a,m,1).getTime();
+  return{start:start,end:end};
+}
+function ventasDelMes(ventas,yyyymm){
+  var r=getMesRange(yyyymm);
+  return ventas.filter(function(v){return v.created_at>=r.start&&v.created_at<r.end;});
+}
+function getMesOptions(){
+  var opts='';
+  var now=new Date(),cur=getMesActivo();
+  var d=new Date(now.getFullYear(),now.getMonth(),1);
+  for(var i=0;i<8;i++){
+    var mm=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    opts+='<option value="'+mm+'"'+(mm===cur?' selected':'')+'>'+MESES_ES[d.getMonth()]+' '+d.getFullYear()+'</option>';
+    d.setMonth(d.getMonth()-1);
+  }
+  return opts;
+}
+function mesSelector(){
+  return '<select style="background:rgba(255,255,255,.06);border:1px solid var(--brd);border-radius:7px;color:var(--txt);padding:5px 9px;font-size:11px;font-family:inherit;width:100%;margin-bottom:8px" onchange="setMesActivo(this.value)">'+getMesOptions()+'</select>';
+}
+function ventaValorSafe(v){
+  var plan=typeof v.plan==='number'?v.plan:parseInt(v.plan)||0;
+  var base=PLAN_SIN_IVA[plan]||PLAN_SIN_IVA[String(plan)]||0;
+  return v.tipo_venta==='migracion'?base*0.5:base;
+}
+
 function ventaValor(v){
   var base=PLAN_SIN_IVA[v.plan]||0;
   return v.tipo_venta==='migracion'?base*0.5:base;
@@ -477,7 +531,7 @@ function tipoBadge(tipo){
   return map[tipo]||tipo;
 }
 function noveltyBadge(tipo){
-  var map={logistica:'<span class="badge b-yellow">🚚 Novedad logística</span>',rechazo_nip:'<span class="badge b-red">🔑 NIP errado</span>',rechazo_titularidad:'<span class="badge b-red">👤 Titularidad</span>'};
+  var map={logistica:'<span class="badge b-yellow">🚚 Novedad logística</span>',rechazo_nip:'<span class="badge b-red">🔑 NIP errado</span>',rechazo_titularidad:'<span class="badge b-red">👤 Titularidad</span>',recogida_punto:'<span class="badge b-purple">📦 Recogida en punto</span>'};
   return map[tipo]||tipo;
 }
 function rolBadge(rol){
@@ -608,8 +662,10 @@ function buildNav(rol){
   } else if(rol==='backoffice'){
     items=[
       {id:'bk-cargar',icon:'📥',label:'Cargar novedad'},
-      {id:'bk-pendientes',icon:'⏳',label:'Pendientes'},
+      {id:'bk-lote',icon:'📦',label:'Cargar por lote'},
+      {id:'bk-pendientes',icon:'⏳',label:'Pendientes',badge:true},
       {id:'bk-gestionadas',icon:'✅',label:'Gestionadas'},
+      {id:'bk-efectividad',icon:'📊',label:'Efectividad'},
     ];
   } else {
     items=[
@@ -633,6 +689,8 @@ function buildNav(rol){
   navTo(items[0].id);
 }
 function navTo(id){
+  currentNavId=id;
+  var mw=qs('mes-sel-wrap');if(mw)mw.innerHTML=mesSelector();
   document.querySelectorAll('.nav-item').forEach(function(el){ el.classList.remove('active'); });
   var el=qs('nav-'+id); if(el) el.classList.add('active');
   if(id==='ag-nueva') renderAgNuevaVenta();
@@ -642,6 +700,8 @@ function navTo(id){
   else if(id==='bk-cargar') renderBkCargar();
   else if(id==='bk-pendientes') renderBkPendientes();
   else if(id==='bk-gestionadas') renderBkGestionadas();
+  else if(id==='bk-lote') renderBkLote();
+  else if(id==='bk-efectividad') renderBkEfectividad();
   else if(id==='sv-dashboard') renderSvDashboard();
   else if(id==='sv-esim') renderSvEsim();
   else if(id==='sv-ventas') renderSvVentas();
@@ -843,8 +903,8 @@ function submitVenta(e){
 function renderAgMisVentas(){
   setHtml('view-container',`
     <div class="page-header">
-      <div class="page-title">📋 Mis ventas</div>
-      <div class="page-sub">Historial completo de tus ventas registradas</div>
+      <div class="page-title">📋 Mis ventas — ${getMesLabel(getMesActivo())}</div>
+      <div class="page-sub">Historial de tus ventas del mes seleccionado</div>
     </div>
     <div class="content-area">
       <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
@@ -865,13 +925,16 @@ function renderAgMisVentas(){
 }
 var misVentasData=[];
 function cargarMisVentas(){
-  ROOT_REF.child('ventas').orderByChild('agente_cedula').equalTo(SESSION.cedula)
-    .once('value').then(function(snap){
-      misVentasData=[];
-      snap.forEach(function(ch){ misVentasData.push(Object.assign({_id:ch.key},ch.val())); });
-      misVentasData.sort(function(a,b){return b.created_at-a.created_at;});
-      renderMisVentasTable(misVentasData);
+  ROOT_REF.child('ventas').once('value').then(function(snap){
+    misVentasData=[];
+    snap.forEach(function(ch){
+      var v=ch.val();
+      if(v.agente_cedula===SESSION.cedula)misVentasData.push(Object.assign({_id:ch.key},v));
     });
+    misVentasData=ventasDelMes(misVentasData,getMesActivo());
+    misVentasData.sort(function(a,b){return b.created_at-a.created_at;});
+    renderMisVentasTable(misVentasData);
+  });
 }
 function filtrarMisVentas(){
   var q=(qs('ag-search').value||'').toLowerCase();
@@ -1014,112 +1077,118 @@ function actualizarOrden(ventaId){
 }
 
 function renderAgConversion(){
-  var am=getAniomes();
-  ROOT_REF.child('config/calendario/'+am.anio+'-'+String(am.mes).padStart(2,'0')+'/festivos').once('value').then(function(fSnap){
+  var mes=getMesActivo();
+  var am={anio:parseInt(mes.split('-')[0]),mes:parseInt(mes.split('-')[1])};
+  var yyyymm=mes;
+  // Load all data in parallel
+  Promise.all([
+    ROOT_REF.child('ventas').once('value'),
+    ROOT_REF.child('usuarios/'+SESSION.cedula).once('value'),
+    ROOT_REF.child('config/calendario/'+yyyymm+'/festivos').once('value')
+  ]).then(function(results){
+    var ventasSnap=results[0], uSnap=results[1], fSnap=results[2];
+    var usuario=uSnap.val()||{campana:'outbound',tipo:'antiguo'};
+    var campana=usuario.campana||'outbound';
+    var tipo=usuario.tipo||'antiguo';
     var festivos=fSnap.val()||{};
     var dias=getDiasInfo(am.anio,am.mes,festivos);
-    ROOT_REF.child('usuarios/'+SESSION.cedula).once('value').then(function(uSnap){
-      var usuario=uSnap.val()||{campana:'outbound',tipo:'antiguo'};
-      ROOT_REF.child('ventas').orderByChild('agente_cedula').equalTo(SESSION.cedula).once('value').then(function(snap){
-        var ventas=[]; snap.forEach(function(ch){ventas.push(Object.assign({_id:ch.key},ch.val()));});
-        var total=ventas.length;
-        var gross=ventas.filter(function(v){return v.estado==='gross';});
-        var pctConv=total>0?Math.round((gross.length/total)*100):0;
-        var colConv=pctConv>=75?'var(--suc)':pctConv>=50?'var(--warn)':'var(--dan)';
-        var cd=calcComisionData(gross,usuario.campana||'outbound',usuario.tipo||'antiguo');
-        var com=cd.row?cd.row.com:0;
-        var bono=cd.bono||0;
-        var totalEst=com+bono;
-        // Projection
-        var proj='—',projCom='—';
-        if(dias.elapsedH>0){
-          var pace=cd.campana==='inbound'?cd.cnt/dias.elapsedH:cd.billing/dias.elapsedH;
-          var projVal=pace*dias.totalH;
-          if(cd.campana==='inbound'){
-            var projRow=COM_IB.find(function(r){return projVal>=r.min&&projVal<=r.max;})||null;
-            proj=projVal.toFixed(1)+' ventas';
-            projCom=projRow?fCOP(projRow.com):fCOP(0);
-          } else {
-            var tabla=usuario.tipo==='antiguo'?COM_OB_ANT:COM_OB_NEW;
-            var projRow=tabla.find(function(r){return projVal>=r.d&&(r.h===-1||projVal<=r.h);})||null;
-            proj=fCOP(projVal);
-            projCom=projRow?fCOP(projRow.com):fCOP(0);
-          }
-        }
-        // Falta para siguiente piso
-        var faltaStr='';
-        if(cd.nextRow){
-          if(cd.campana==='inbound') faltaStr='Faltan <b>'+cd.faltaCnt.toFixed(1)+'</b> ventas para '+cd.nextRow.piso+' ('+fCOP(cd.nextRow.com)+')';
-          else faltaStr='Faltan <b>'+fCOP(cd.faltaF)+'</b> en factura para nivel '+fCOP(cd.nextRow.d)+' ('+fCOP(cd.nextRow.com)+')';
-        } else if(cd.row){ faltaStr='<span class="text-green">🎉 Nivel máximo alcanzado</span>'; }
-        else { faltaStr='Sin ventas GROSS aún — el primer piso requiere '+(cd.campana==='inbound'?COM_IB[0].min+' ventas':fCOP((usuario.tipo==='antiguo'?COM_OB_ANT:COM_OB_NEW)[0].d)+' en factura'); }
-        // Penalizadores info
-        var penStr='<div style="font-size:11px;color:var(--mut);line-height:1.8">'
-          +'⚠️ Asistencia &lt;90%: -30% com. &nbsp;|&nbsp; Calidad &lt;85%: -10%<br>'
-          +'⚠️ Bajas tempranas: -10% &nbsp;|&nbsp; AI: -50% cada una<br>'
-          +'⚠️ Órdenes limpias mín 70% (si no: -10%) &nbsp;|&nbsp; Migración: factura al 50%<br>'
-          +'🚫 PQR procedente: -100% &nbsp;|&nbsp; Malas prácticas: -100%</div>';
-        setHtml('view-container',
-          '<div class="page-header"><div class="page-title">📊 Mi comisión — Junio 2026</div>'
-          +'<div class="page-sub">Campaña: <b>'+(usuario.campana||'outbound').toUpperCase()+'</b> &nbsp;·&nbsp; Tipo: <b>'+(usuario.tipo||'antiguo')+'</b> &nbsp;·&nbsp; Días laborables: <b>'+dias.totalD.toFixed(1)+'</b> &nbsp;·&nbsp; Transcurridos: <b>'+dias.elapsedD.toFixed(1)+'</b></div></div>'
-          +'<div class="content-area">'
-          +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
-          // Left: commission status
-          +'<div>'
-          +'<div class="card" style="margin-bottom:12px">'
-          +'<div class="card-title">💰 Estado comisional actual</div>'
-          +'<div style="text-align:center;padding:16px 0">'
-          +(cd.row
-            ?'<div style="font-size:42px;font-weight:900;color:var(--suc)">'+fCOPk(com)+'</div>'
-             +'<div style="font-size:12px;color:var(--mut);margin-bottom:8px">comisión '+(cd.campana==='inbound'?cd.row.piso:'nivel '+cd.row.pct+'%')+'</div>'
-             +(bono>0?'<div style="font-size:20px;font-weight:700;color:var(--warn)">+ '+fCOP(bono)+' bono activas</div>':'' )
-             +'<div style="font-size:24px;font-weight:700;color:#FCD34D;margin-top:4px">= '+fCOPk(totalEst)+' estimado</div>'
-            :'<div style="font-size:28px;font-weight:700;color:var(--mut)">Sin piso aún</div><div style="font-size:12px;color:var(--mut)">Acumula más ventas GROSS</div>'
-          )+'</div>'
-          +'<div style="padding:0 4px">'
-          +(cd.campana==='inbound'
-            ?'<div class="detail-row"><span class="detail-label">Ventas GROSS efectivas</span><span class="detail-value fw-bold text-green">'+cd.cnt.toFixed(1)+'</span></div>'
-            :'<div class="detail-row"><span class="detail-label">Factura acumulada sin IVA</span><span class="detail-value fw-bold text-green">'+fCOP(cd.billing)+'</span></div>'
-             +'<div class="detail-row"><span class="detail-label">Activas (Port + LN)</span><span class="detail-value fw-bold">'+cd.qActivas+'</span></div>'
-          )
-          +'<div class="detail-row"><span class="detail-label">Falta para siguiente piso</span><span class="detail-value" style="font-size:11px">'+faltaStr+'</span></div>'
-          +'</div>'
-          +'<div class="divider"></div>'
-          +'<div style="font-size:11px;padding:0 2px"><b>📈 Proyección cierre mes:</b><br>'
-          +'<span style="color:var(--pri)">'+proj+'</span> → <span style="color:var(--warn);font-weight:700">'+projCom+' estimado</span>'
-          +'<div style="font-size:10px;color:var(--mut);margin-top:2px">Basado en tu ritmo actual ('+dias.elapsedD.toFixed(1)+' días de '+dias.totalD.toFixed(1)+')</div>'
-          +'</div>'
-          +'</div>'
-          // Conversion
-          +'<div class="card">'
-          +'<div class="card-title">🎯 Conversión</div>'
-          +'<div style="text-align:center;padding:8px 0 12px">'
-          +'<div style="font-size:48px;font-weight:900;color:'+colConv+'">'+pctConv+'%</div>'
-          +'<div style="font-size:11px;color:var(--mut)">'+gross.length+' GROSS de '+total+' ventas</div>'
-          +'<div class="conv-bar-wrap" style="margin:10px 0"><div class="conv-bar" style="width:'+Math.min(pctConv,100)+'%;background:'+colConv+'"></div></div>'
-          +'<div style="font-size:11px">'+( pctConv>=75?'<span class="badge b-green">✅ Meta cumplida (75%)</span>':pctConv>=50?'<span class="badge b-yellow">⚠️ En desarrollo</span>':'<span class="badge b-red">🔴 Por debajo de meta</span>')+'</div>'
-          +'</div>'
-          +'</div>'
-          +'</div>'
-          // Right: table + penalizers
-          +'<div>'
-          +'<div class="card" style="margin-bottom:12px">'
-          +'<div class="card-title">📋 Tabla comisional ('+(usuario.campana==='inbound'?'Inbound':('Outbound '+usuario.tipo))+')</div>'
-          +(cd.campana==='inbound'
-            ?'<div class="tbl-wrap"><table><thead><tr><th>Mín ventas</th><th>Piso</th><th>Comisión</th></tr></thead><tbody>'
-              +COM_IB.map(function(r){return '<tr style="background:'+(cd.row&&cd.row.piso===r.piso?'rgba(16,185,129,.12)':'')+'"><td>'+r.min+'+</td><td>'+r.piso+'</td><td style="color:var(--suc);font-weight:600">'+fCOP(r.com)+'</td></tr>';}).join('')
-              +'</tbody></table></div>'
-            :'<div class="tbl-wrap"><table><thead><tr><th>Factura desde</th><th>%</th><th>Comisión</th><th>Q Act.</th><th>Bono</th></tr></thead><tbody>'
-              +(usuario.tipo==='antiguo'?COM_OB_ANT:COM_OB_NEW).map(function(r){var cur=cd.row&&cd.row.d===r.d;return '<tr style="background:'+(cur?'rgba(16,185,129,.12)':'')+'"><td>'+fCOP(r.d)+'</td><td>'+r.pct+'%</td><td style="color:var(--suc);font-weight:600">'+fCOP(r.com)+'</td><td>'+(r.qA||'—')+'</td><td>'+(r.bono?fCOP(r.bono):'—')+'</td></tr>';}).join('')
-              +'</tbody></table></div>'
-          )
-          +'</div>'
-          +'<div class="card"><div class="card-title">⚠️ Penalizadores</div>'+penStr+'</div>'
-          +'</div>'
-          +'</div></div>'
-        );
-      });
-    });
+    // All ventas for this agent in selected month
+    var allVentas=[];
+    ventasSnap.forEach(function(ch){var v=ch.val();if(v.agente_cedula===SESSION.cedula)allVentas.push(v);});
+    allVentas=ventasDelMes(allVentas,mes);
+    var total=allVentas.length;
+    var gross=allVentas.filter(function(v){return v.estado==='gross';});
+    var pctConv=total>0?Math.round((gross.length/total)*100):0;
+    var colConv=pctConv>=75?'var(--suc)':pctConv>=50?'var(--warn)':'var(--dan)';
+    var cd=calcComisionData(gross,campana,tipo);
+    var com=cd.row?cd.row.com:0;
+    var bono=cd.bono||0;
+    var totalEst=com+bono;
+    // Projection
+    var proj='—',projCom='—';
+    if(dias.elapsedH>0&&(campana==='inbound'?cd.cnt:cd.billing)>0){
+      var pace=campana==='inbound'?cd.cnt/dias.elapsedH:cd.billing/dias.elapsedH;
+      var projVal=pace*dias.totalH;
+      if(campana==='inbound'){
+        var pjR=COM_IB.find(function(r){return projVal>=r.min&&projVal<=r.max;})||null;
+        proj=projVal.toFixed(1)+' ventas';
+        projCom=pjR?fCOP(pjR.com):'$0';
+      } else {
+        var tbl=tipo==='antiguo'?COM_OB_ANT:COM_OB_NEW;
+        var pjR=tbl.find(function(r){return projVal>=r.d&&(r.h===-1||projVal<=r.h);})||null;
+        proj=fCOP(projVal);
+        projCom=pjR?fCOP(pjR.com):'$0';
+      }
+    }
+    var faltaStr='';
+    if(cd.nextRow){
+      if(campana==='inbound')faltaStr='Faltan <b>'+cd.faltaCnt.toFixed(1)+'</b> ventas para '+cd.nextRow.piso+' ('+fCOP(cd.nextRow.com)+')';
+      else faltaStr='Faltan <b>'+fCOP(cd.faltaF)+'</b> en factura para nivel '+fCOP(cd.nextRow.d)+' ('+fCOP(cd.nextRow.com)+')';
+    } else if(cd.row){faltaStr='<span class="text-green">🎉 Nivel máximo alcanzado</span>';}
+    else {var tbl2=tipo==='antiguo'?COM_OB_ANT:COM_OB_NEW;faltaStr='Sin GROSS aún — primer piso requiere '+(campana==='inbound'?COM_IB[0].min+' ventas':fCOP(tbl2[0].d)+' en factura');}
+
+    setHtml('view-container',
+      '<div class="page-header">'
+      +'<div class="page-title">💰 Mi comisión — '+getMesLabel(mes)+'</div>'
+      +'<div class="page-sub">'+campana.toUpperCase()+' · '+tipo+' · '+dias.totalD.toFixed(1)+' días lab. · Transcurridos: '+dias.elapsedD.toFixed(1)+'</div>'
+      +'</div>'
+      +'<div class="content-area">'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
+      +'<div>'
+      // Commission card
+      +'<div class="card" style="margin-bottom:12px">'
+      +'<div class="card-title">💰 Estado comisional</div>'
+      +'<div style="text-align:center;padding:12px 0">'
+      +(cd.row
+        ?'<div style="font-size:38px;font-weight:900;color:var(--suc)">'+fCOPk(com)+'</div>'
+         +'<div style="font-size:11px;color:var(--mut);margin:2px 0">comisión '+(campana==='inbound'?cd.row.piso:'nivel '+cd.row.pct+'%')+'</div>'
+         +(bono>0?'<div style="font-size:18px;font-weight:700;color:var(--warn)">+ '+fCOP(bono)+' bono activas</div>':'')
+         +'<div style="font-size:22px;font-weight:700;color:#FCD34D;margin-top:4px">= '+fCOPk(totalEst)+' total est.</div>'
+        :'<div style="font-size:24px;font-weight:700;color:var(--mut)">Sin piso aún</div>'
+      )+'</div>'
+      +'<div style="padding:0 4px;font-size:12px">'
+      +(campana==='inbound'
+        ?'<div class="detail-row"><span class="detail-label">GROSS efectivos</span><span class="detail-value fw-bold text-green">'+cd.cnt.toFixed(1)+'</span></div>'
+        :'<div class="detail-row"><span class="detail-label">Factura sin IVA</span><span class="detail-value fw-bold text-green">'+fCOP(cd.billing)+'</span></div>'
+         +'<div class="detail-row"><span class="detail-label">Activas (Port+LN)</span><span class="detail-value">'+cd.qActivas+'</span></div>'
+      )
+      +'<div class="detail-row"><span class="detail-label">Sig. piso</span><span class="detail-value" style="font-size:10px">'+faltaStr+'</span></div>'
+      +'</div>'
+      +'<div class="divider"></div>'
+      +'<div style="font-size:11px;padding:0 2px"><b>📈 Proyección cierre:</b> '
+      +'<span style="color:var(--pri)">'+proj+'</span> → <span style="color:var(--warn);font-weight:700">'+projCom+'</span></div>'
+      +'</div>'
+      // Conversion card
+      +'<div class="card">'
+      +'<div class="card-title">🎯 Conversión del mes</div>'
+      +'<div style="text-align:center;padding:8px 0 10px">'
+      +'<div style="font-size:44px;font-weight:900;color:'+colConv+'">'+pctConv+'%</div>'
+      +'<div style="font-size:11px;color:var(--mut)">'+gross.length+' GROSS de '+total+' ventas</div>'
+      +'<div style="height:8px;background:rgba(255,255,255,.08);border-radius:99px;margin:10px 0;overflow:hidden"><div style="width:'+Math.min(pctConv,100)+'%;height:100%;background:'+colConv+';border-radius:99px"></div></div>'
+      +(pctConv>=75?'<span class="badge b-green">✅ Meta cumplida (75%)</span>':pctConv>=50?'<span class="badge b-yellow">⚠️ En desarrollo</span>':'<span class="badge b-red">🔴 Bajo meta</span>')
+      +'</div>'
+      +'</div>'
+      +'</div>'
+      // Right: table
+      +'<div>'
+      +'<div class="card" style="margin-bottom:12px">'
+      +'<div class="card-title">📋 Tabla ('+(campana==='inbound'?'Inbound':('Outbound '+tipo))+')</div>'
+      +(campana==='inbound'
+        ?'<div class="tbl-wrap"><table><thead><tr><th>Mín</th><th>Piso</th><th>Comisión</th></tr></thead><tbody>'
+          +COM_IB.map(function(r){return '<tr style="background:'+(cd.row&&cd.row.piso===r.piso?'rgba(16,185,129,.12)':'')+'"><td>'+r.min+'</td><td>'+r.piso+'</td><td style="color:var(--suc);font-weight:600">'+fCOP(r.com)+'</td></tr>';}).join('')
+          +'</tbody></table></div>'
+        :'<div class="tbl-wrap"><table><thead><tr><th>Factura</th><th>%</th><th>Com.</th><th>Q Act</th><th>Bono</th></tr></thead><tbody>'
+          +(tipo==='antiguo'?COM_OB_ANT:COM_OB_NEW).map(function(r){var cur=cd.row&&cd.row.d===r.d;return '<tr style="background:'+(cur?'rgba(16,185,129,.12)':'')+'"><td>'+fCOP(r.d)+'</td><td>'+r.pct+'%</td><td style="color:var(--suc);font-weight:600">'+fCOP(r.com)+'</td><td>'+(r.qA||'—')+'</td><td>'+(r.bono?fCOP(r.bono):'—')+'</td></tr>';}).join('')
+          +'</tbody></table></div>'
+      )+'</div>'
+      +'<div class="card"><div class="card-title">⚠️ Penalizadores</div>'
+      +'<div style="font-size:10px;color:var(--mut);line-height:1.9">Asistencia &lt;90%: -30% · Calidad &lt;85%: -10%<br>Bajas tempranas: -10% · AI: -50% c/u<br>Órdenes limpias min 70% (si no: -10%)<br>Migración: factura al 50% · PQR proc.: -100%<br>Malas prácticas: -100% del acelerador</div>'
+      +'</div>'
+      +'</div>'
+      +'</div></div>'
+    );
+  }).catch(function(e){
+    setHtml('view-container','<div class="page-header"><div class="page-title">💰 Mi comisión</div></div><div class="content-area"><div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">Error cargando datos</div><div class="empty-sub">'+e.message+'</div></div></div>');
   });
 }
 
@@ -1170,6 +1239,7 @@ function renderBkCargar(){
               <option value="logistica">🚚 Novedad logística</option>
               <option value="rechazo_nip">🔑 Rechazo por NIP errado</option>
               <option value="rechazo_titularidad">👤 Rechazo por titularidad</option>
+              <option value="recogida_punto">📦 Recogida en punto</option>
             </select>
           </div>
           <div class="f-group">
@@ -1309,48 +1379,46 @@ function verNovedadBk(ventaId){
 //   SUPERVISOR
 // ════════════════════════════════════════
 function renderSvDashboard(){
-  setHtml('view-container','<div class="page-header"><div class="page-title">🏠 Dashboard</div><div class="page-sub">Resumen general del sistema en tiempo real</div></div><div class="content-area"><div id="sv-dash-content"><div class="loading"><div class="spinner"></div>Cargando datos...</div></div></div>');
+  var mes=getMesActivo();
+  setHtml('view-container','<div class="page-header"><div class="page-title">🏠 Dashboard — '+getMesLabel(mes)+'</div></div><div class="content-area"><div id="sv-dash-content"><div class="loading"><div class="spinner"></div>Cargando datos...</div></div></div>');
   ROOT_REF.child('ventas').once('value').then(function(snap){
     var ventas=[];
     snap.forEach(function(ch){ ventas.push(Object.assign({_id:ch.key},ch.val())); });
-    var hoy=todayTs(), sem=weekStart(), mes=monthStart();
-    var todayV=ventas.filter(function(v){return v.created_at>=hoy;});
-    var semV=ventas.filter(function(v){return v.created_at>=sem;});
-    var mesV=ventas.filter(function(v){return v.created_at>=mes;});
-    var gross=ventas.filter(function(v){return v.estado==='gross';}).length;
-    var pct=ventas.length>0?Math.round((gross/ventas.length)*100):0;
-    // By agent
+    var ventasMes=ventasDelMes(ventas,mes);
+    var hoy=todayTs(),sem=weekStart();
+    var todayV=ventasMes.filter(function(v){return v.created_at>=hoy;});
+    var semV=ventasMes.filter(function(v){return v.created_at>=sem;});
+    var gross=ventasMes.filter(function(v){return v.estado==='gross';}).length;
+    var pct=ventasMes.length>0?Math.round((gross/ventasMes.length)*100):0;
     var byAgent={};
-    ventas.forEach(function(v){
+    ventasMes.forEach(function(v){
       if(!byAgent[v.agente_nombre]) byAgent[v.agente_nombre]={total:0,gross:0};
       byAgent[v.agente_nombre].total++;
       if(v.estado==='gross') byAgent[v.agente_nombre].gross++;
     });
     var agRows=Object.entries(byAgent).sort(function(a,b){return b[1].total-a[1].total;}).map(function(ag){
       var p=ag[1].total>0?Math.round((ag[1].gross/ag[1].total)*100):0;
-      var color=p>=70?'var(--suc)':p>=50?'var(--warn)':'var(--dan)';
+      var color=p>=75?'var(--suc)':p>=50?'var(--warn)':'var(--dan)';
       return '<tr><td class="fw-600">'+ag[0]+'</td><td class="td-center">'+ag[1].total+'</td><td class="td-center">'+ag[1].gross+'</td>'
         +'<td class="td-center"><span style="font-weight:700;color:'+color+'">'+p+'%</span></td>'
         +'<td><div class="progress-wrap"><div class="progress-fill" style="width:'+p+'%;background:'+color+'"></div></div></td></tr>';
     }).join('');
-    // Pending novelties
     ROOT_REF.child('novedades').orderByChild('estado').equalTo('pendiente').once('value').then(function(novSnap){
       var novPend=0; novSnap.forEach(function(){ novPend++; });
-      // eSIM pending
-      var esimPend=ventas.filter(function(v){return v.tipo_simcard==='esim'&&v.esim_aprobada===null;}).length;
+      var esimPend=ventasMes.filter(function(v){return v.tipo_simcard==='esim'&&v.esim_aprobada===null;}).length;
       setHtml('sv-dash-content',
-        '<div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr))">'
-        +'<div class="stat-card stat-blue"><div class="stat-label">Hoy</div><div class="stat-value">'+todayV.length+'</div><div class="stat-sub">ventas registradas</div></div>'
+        '<div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr))">'
+        +'<div class="stat-card stat-blue"><div class="stat-label">Hoy</div><div class="stat-value">'+todayV.length+'</div></div>'
         +'<div class="stat-card stat-blue"><div class="stat-label">Esta semana</div><div class="stat-value">'+semV.length+'</div></div>'
-        +'<div class="stat-card stat-blue"><div class="stat-label">Este mes</div><div class="stat-value">'+mesV.length+'</div></div>'
-        +'<div class="stat-card stat-green"><div class="stat-label">GROSS total</div><div class="stat-value">'+gross+'</div></div>'
-        +'<div class="stat-card '+(pct>=70?'stat-green':pct>=50?'stat-warn':'stat-red')+'"><div class="stat-label">Conversión</div><div class="stat-value">'+pct+'%</div></div>'
+        +'<div class="stat-card stat-blue"><div class="stat-label">Total mes</div><div class="stat-value">'+ventasMes.length+'</div></div>'
+        +'<div class="stat-card stat-green"><div class="stat-label">GROSS</div><div class="stat-value">'+gross+'</div></div>'
+        +'<div class="stat-card '+(pct>=75?'stat-green':pct>=50?'stat-warn':'stat-red')+'"><div class="stat-label">Conversión</div><div class="stat-value">'+pct+'%</div></div>'
         +'<div class="stat-card '+(novPend>0?'stat-warn':'stat-green')+'"><div class="stat-label">Novedades</div><div class="stat-value">'+novPend+'</div><div class="stat-sub">sin gestionar</div></div>'
-        +'<div class="stat-card '+(esimPend>0?'stat-warn':'stat-green')+'"><div class="stat-label">eSIM pendientes</div><div class="stat-value">'+esimPend+'</div><div class="stat-sub">por auditar</div></div>'
+        +'<div class="stat-card '+(esimPend>0?'stat-warn':'stat-green')+'"><div class="stat-label">eSIM pend.</div><div class="stat-value">'+esimPend+'</div></div>'
         +'</div>'
-        +'<div class="card"><div class="card-title">Conversión por agente</div>'
-        +(agRows?'<div class="tbl-wrap"><table><thead><tr><th>Agente</th><th class="td-center">Total</th><th class="td-center">GROSS</th><th class="td-center">%</th><th style="min-width:100px">Barra</th></tr></thead><tbody>'+agRows+'</tbody></table></div>'
-        :'<div class="empty-state" style="padding:20px"><div class="empty-icon">📊</div><div class="empty-text">Sin ventas registradas</div></div>')
+        +'<div class="card"><div class="card-title">Conversión por agente — '+getMesLabel(mes)+'</div>'
+        +(agRows?'<div class="tbl-wrap"><table><thead><tr><th>Agente</th><th class="td-center">Total</th><th class="td-center">GROSS</th><th class="td-center">%</th><th style="min-width:80px">Barra</th></tr></thead><tbody>'+agRows+'</tbody></table></div>'
+        :'<div class="empty-state" style="padding:20px"><div class="empty-icon">📊</div><div class="empty-text">Sin ventas en '+getMesLabel(mes)+'</div></div>')
         +'</div>'
       );
     });
@@ -1465,6 +1533,15 @@ function svEditarVenta(ventaId){
     +'</div>'
     +'<div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>'
     +'<button class="btn btn-pri" onclick="svGuardarEdicion(\''+ventaId+'\')">Guardar cambios</button></div>');
+}
+function svEliminarVenta(ventaId){
+  showConfirm('Eliminar venta','¿Eliminar esta venta permanentemente? No se puede deshacer.',function(){
+    ROOT_REF.child('ventas/'+ventaId).remove().then(function(){
+      toast('Venta eliminada','warn');
+      svAllVentas=svAllVentas.filter(function(v){return v._id!==ventaId;});
+      filtrarSvVentas();
+    });
+  });
 }
 function svGuardarEdicion(ventaId){
   var estado=qs('sv-edit-estado').value;
@@ -1724,65 +1801,61 @@ function updateBkBadge(){
 }
 
 function renderSvMeta(){
-  var am=getAniomes();
-  ROOT_REF.child('config/calendario/'+am.anio+'-'+String(am.mes).padStart(2,'0')+'/festivos').once('value').then(function(fSnap){
+  var mes=getMesActivo();
+  var am={anio:parseInt(mes.split('-')[0]),mes:parseInt(mes.split('-')[1])};
+  Promise.all([
+    ROOT_REF.child('ventas').once('value'),
+    ROOT_REF.child('usuarios').once('value'),
+    ROOT_REF.child('config/calendario/'+mes+'/festivos').once('value')
+  ]).then(function(res){
+    var ventasSnap=res[0],uSnap=res[1],fSnap=res[2];
     var festivos=fSnap.val()||{};
     var dias=getDiasInfo(am.anio,am.mes,festivos);
-    ROOT_REF.child('ventas').once('value').then(function(snap){
-      ROOT_REF.child('usuarios').orderByChild('rol').equalTo('agente').once('value').then(function(uSnap){
-        var ventas=[]; snap.forEach(function(ch){ventas.push(Object.assign({_id:ch.key},ch.val()));});
-        var agentes={}; uSnap.forEach(function(ch){var u=ch.val();agentes[ch.key]=u;});
-        // Team totals
-        var totalCant=ventas.length;
-        var totalGross=ventas.filter(function(v){return v.estado==='gross';}).length;
-        var totalBilling=ventas.filter(function(v){return v.estado==='gross';}).reduce(function(s,v){return s+ventaValor(v);},0);
-        var pctConv=totalCant>0?Math.round((totalGross/totalCant)*100):0;
-        var colConv=pctConv>=75?'var(--suc)':pctConv>=50?'var(--warn)':'var(--dan)';
-        // Per-agent rows
-        var agRows='';
-        var agData={};
-        ventas.forEach(function(v){
-          if(!agData[v.agente_cedula]) agData[v.agente_cedula]={nombre:v.agente_nombre,cedula:v.agente_cedula,total:0,gross:0,billing:0};
-          agData[v.agente_cedula].total++;
-          if(v.estado==='gross'){agData[v.agente_cedula].gross++;agData[v.agente_cedula].billing+=ventaValor(v);}
-        });
-        agRows=Object.values(agData).sort(function(a,b){return b.gross-a.gross;}).map(function(ag){
-          var u=agentes[ag.cedula]||{campana:'outbound',tipo:'antiguo'};
-          var gross=ventas.filter(function(v){return v.agente_cedula===ag.cedula&&v.estado==='gross';});
-          var cd=calcComisionData(gross,u.campana||'outbound',u.tipo||'antiguo');
-          var com=cd.row?cd.row.com:0;var bono=cd.bono||0;
-          var pct=ag.total>0?Math.round((ag.gross/ag.total)*100):0;
-          var col=pct>=75?'var(--suc)':pct>=50?'var(--warn)':'var(--dan)';
-          return '<tr><td class="fw-600">'+ag.nombre+'</td>'
-            +'<td><span class="badge '+(u.campana==='inbound'?'b-purple':'b-blue')+'">'+(u.campana||'OB').toUpperCase()+'</span> <span class="badge b-gray">'+(u.tipo||'ant')+'</span></td>'
-            +'<td class="td-center">'+ag.total+'</td>'
-            +'<td class="td-center" style="color:var(--suc);font-weight:700">'+ag.gross+'</td>'
-            +'<td class="td-center" style="color:'+col+';font-weight:700">'+pct+'%</td>'
-            +'<td class="td-center" style="color:var(--pri)">'+fCOP(ag.billing)+'</td>'
-            +'<td class="td-center" style="color:'+(com>0?'var(--suc)':'var(--mut)')+'">'+fCOP(com)+'</td>'
-            +'<td class="td-center" style="color:var(--warn)">'+fCOP(bono)+'</td>'
-            +'<td class="td-center" style="color:#FCD34D;font-weight:700">'+fCOP(com+bono)+'</td>'
-            +'</tr>';
-        }).join('');
-        setHtml('view-container',
-          '<div class="page-header"><div class="page-title">🎯 Meta del equipo — '+am.anio+'/'+String(am.mes).padStart(2,'0')+'</div>'
-          +'<div class="page-sub">Días laborables: '+dias.totalD.toFixed(1)+' · Transcurridos: '+dias.elapsedD.toFixed(1)+' · Restantes: '+dias.remD.toFixed(1)+'</div></div>'
-          +'<div class="content-area">'
-          +'<div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr));margin-bottom:16px">'
-          +'<div class="stat-card stat-blue"><div class="stat-label">Cantadas total</div><div class="stat-value">'+totalCant+'</div></div>'
-          +'<div class="stat-card stat-green"><div class="stat-label">GROSS total</div><div class="stat-value">'+totalGross+'</div></div>'
-          +'<div class="stat-card '+(pctConv>=75?'stat-green':pctConv>=50?'stat-warn':'stat-red')+'"><div class="stat-label">Conversión equipo</div><div class="stat-value">'+pctConv+'%</div></div>'
-          +'<div class="stat-card stat-blue"><div class="stat-label">Factura acum.</div><div class="stat-value" style="font-size:16px">'+fCOPk(totalBilling)+'</div></div>'
-          +'</div>'
-          +'<div class="card"><div class="card-title">💰 Comisiones por agente</div>'
-          +'<div class="tbl-wrap"><table><thead><tr>'
-          +'<th>Agente</th><th>Campaña</th><th class="td-center">Cant.</th><th class="td-center">GROSS</th><th class="td-center">Conv.</th><th class="td-center">Factura</th><th class="td-center">Comisión</th><th class="td-center">Bono</th><th class="td-center">Total est.</th>'
-          +'</tr></thead><tbody>'+agRows+'</tbody></table></div></div>'
-          +'</div>'
-        );
-      });
+    var ventas=[]; ventasSnap.forEach(function(ch){ventas.push(Object.assign({_id:ch.key},ch.val()));});
+    var ventasMes=ventasDelMes(ventas,mes);
+    var agentes={}; uSnap.forEach(function(ch){var u=ch.val();if(u.rol==='agente')agentes[ch.key]=u;});
+    var totalCant=ventasMes.length;
+    var totalGross=ventasMes.filter(function(v){return v.estado==='gross';}).length;
+    var totalBilling=ventasMes.filter(function(v){return v.estado==='gross';}).reduce(function(s,v){return s+ventaValorSafe(v);},0);
+    var pctConv=totalCant>0?Math.round((totalGross/totalCant)*100):0;
+    var agData={};
+    ventasMes.forEach(function(v){
+      if(!agData[v.agente_cedula])agData[v.agente_cedula]={nombre:v.agente_nombre,cedula:v.agente_cedula,total:0,gross:[],billing:0};
+      agData[v.agente_cedula].total++;
+      if(v.estado==='gross'){agData[v.agente_cedula].gross.push(v);agData[v.agente_cedula].billing+=ventaValorSafe(v);}
     });
-  });
+    var agRows=Object.values(agData).sort(function(a,b){return b.gross.length-a.gross.length;}).map(function(ag){
+      var u=agentes[ag.cedula]||{campana:'outbound',tipo:'antiguo'};
+      var cd=calcComisionData(ag.gross,u.campana||'outbound',u.tipo||'antiguo');
+      var com=cd.row?cd.row.com:0;var bono=cd.bono||0;
+      var pct=ag.total>0?Math.round((ag.gross.length/ag.total)*100):0;
+      var col=pct>=75?'var(--suc)':pct>=50?'var(--warn)':'var(--dan)';
+      return '<tr><td class="fw-600">'+ag.nombre+'</td>'
+        +'<td><span class="badge '+(u.campana==='inbound'?'b-purple':'b-blue')+'">'+(u.campana||'OB').toUpperCase()+'</span> <span class="badge b-gray">'+(u.tipo||'ant')+'</span></td>'
+        +'<td class="td-center">'+ag.total+'</td>'
+        +'<td class="td-center" style="color:var(--suc);font-weight:700">'+ag.gross.length+'</td>'
+        +'<td class="td-center" style="color:'+col+';font-weight:700">'+pct+'%</td>'
+        +'<td class="td-center" style="color:var(--pri)">'+fCOP(ag.billing)+'</td>'
+        +'<td class="td-center" style="color:'+(com>0?'var(--suc)':'var(--mut)')+'">'+fCOP(com)+'</td>'
+        +'<td class="td-center" style="color:var(--warn)">'+fCOP(bono)+'</td>'
+        +'<td class="td-center" style="color:#FCD34D;font-weight:700">'+fCOP(com+bono)+'</td>'
+        +'</tr>';
+    }).join('');
+    setHtml('view-container',
+      '<div class="page-header"><div class="page-title">🎯 Meta del equipo — '+getMesLabel(mes)+'</div>'
+      +'<div class="page-sub">Días laborables: '+dias.totalD.toFixed(1)+' · Transcurridos: '+dias.elapsedD.toFixed(1)+' · Restantes: '+dias.remD.toFixed(1)+'</div></div>'
+      +'<div class="content-area">'
+      +'<div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr));margin-bottom:14px">'
+      +'<div class="stat-card stat-blue"><div class="stat-label">Cantadas</div><div class="stat-value">'+totalCant+'</div></div>'
+      +'<div class="stat-card stat-green"><div class="stat-label">GROSS</div><div class="stat-value">'+totalGross+'</div></div>'
+      +'<div class="stat-card '+(pctConv>=75?'stat-green':pctConv>=50?'stat-warn':'stat-red')+'"><div class="stat-label">Conversión</div><div class="stat-value">'+pctConv+'%</div></div>'
+      +'<div class="stat-card stat-blue"><div class="stat-label">Factura acum.</div><div class="stat-value" style="font-size:14px">'+fCOPk(totalBilling)+'</div></div>'
+      +'</div>'
+      +(agRows?'<div class="card"><div class="card-title">💰 Comisiones por agente</div><div class="tbl-wrap"><table><thead><tr><th>Agente</th><th>Campaña</th><th class="td-center">Cant.</th><th class="td-center">GROSS</th><th class="td-center">Conv.</th><th class="td-center">Factura</th><th class="td-center">Comisión</th><th class="td-center">Bono</th><th class="td-center">Total</th></tr></thead><tbody>'+agRows+'</tbody></table></div></div>'
+      :'<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-text">Sin ventas en '+getMesLabel(mes)+'</div></div>')
+      +'</div>'
+    );
+  }).catch(function(e){setHtml('view-container','<div class="content-area"><div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">Error: '+e.message+'</div></div></div>');});
 }
 
 function renderSvCalendario(){
@@ -1869,6 +1942,135 @@ function guardarTrabajaron(yyyymm,dia){
     ROOT_REF.child('config/calendario/'+yyyymm+'/festivos/'+dia+'/trabajaron').set(data).then(function(){
       toast('Guardado','ok');closeModal();renderSvCalendario();
     });
+  });
+}
+
+// ── BACKOFFICE CARGAR POR LOTE ────────────────────────────────────
+function renderBkLote(){
+  setHtml('view-container',`
+    <div class="page-header"><div class="page-title">📦 Cargar novedades por lote</div>
+    <div class="page-sub">Pega varias órdenes y carga la novedad a todas a la vez</div></div>
+    <div class="content-area"><div class="card" style="max-width:640px">
+      <div class="card-title">Ingreso por lote</div>
+      <div class="f-group">
+        <label class="f-label">Números de orden (uno por línea)</label>
+        <textarea class="f-input" id="lote-ordenes" rows="6" placeholder="374492832&#10;374492833&#10;374492834"></textarea>
+      </div>
+      <div class="form-grid">
+        <div class="f-group"><label class="f-label">Tipo de novedad</label>
+          <select class="f-select" id="lote-tipo">
+            <option value="logistica">🚚 Novedad logística</option>
+            <option value="rechazo_nip">🔑 Rechazo NIP errado</option>
+            <option value="rechazo_titularidad">👤 Rechazo titularidad</option>
+            <option value="recogida_punto">📦 Recogida en punto</option>
+          </select>
+        </div>
+        <div class="f-group"><label class="f-label">Descripción</label>
+          <input class="f-input" id="lote-desc" placeholder="Descripción de la novedad">
+        </div>
+      </div>
+      <button class="btn btn-dan" onclick="procesarLote()">⚠️ Procesar lote</button>
+      <div id="lote-resultados" style="margin-top:14px"></div>
+    </div></div>
+  `);
+}
+function procesarLote(){
+  var rawOrdenes=(qs('lote-ordenes').value||'').split('\n').map(function(o){return o.trim();}).filter(Boolean);
+  var tipo=qs('lote-tipo').value;
+  var desc=(qs('lote-desc').value||'').trim();
+  if(!rawOrdenes.length){toast('Ingresa al menos una orden','err');return;}
+  if(!desc){toast('Escribe la descripción','err');return;}
+  setHtml('lote-resultados','<div class="loading"><div class="spinner"></div>Procesando '+rawOrdenes.length+' órdenes...</div>');
+  ROOT_REF.child('ventas').once('value').then(function(snap){
+    var ventasMap={};
+    snap.forEach(function(ch){var v=ch.val();if(v.numero_orden)ventasMap[v.numero_orden]=Object.assign({_id:ch.key},v);});
+    var encontradas=[],noEncontradas=[];
+    rawOrdenes.forEach(function(o){if(ventasMap[o])encontradas.push(ventasMap[o]);else noEncontradas.push(o);});
+    var proms=encontradas.map(function(v){
+      var nov={tipo:tipo,descripcion:desc,backoffice_cedula:SESSION.cedula,backoffice_nombre:SESSION.nombre,fecha_carga:Date.now(),estado:'pendiente',respuesta_agente:'',respuesta_fecha:null};
+      return ROOT_REF.child('novedades/'+v._id).set(nov).then(function(){
+        ROOT_REF.child('ventas/'+v._id).update({tiene_novedad:true,novedad_sin_leer:true,updated_at:Date.now()});
+        crearNotifAgente(v.agente_cedula,{tipo_notif:tipo,msg:'Novedad en orden '+v.numero_orden+': '+desc,ventaId:v._id,leida:false,ts:Date.now()});
+      });
+    });
+    Promise.all(proms).then(function(){
+      var html='<div class="card" style="background:rgba(16,185,129,.06);border-color:rgba(16,185,129,.3)">'
+        +'<div style="color:var(--suc);font-weight:700;margin-bottom:8px">✅ '+encontradas.length+' órdenes procesadas</div>'
+        +encontradas.map(function(v){return '<div style="font-size:11px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)">'+v.numero_orden+' — '+v.agente_nombre+'</div>';}).join('')
+        +'</div>'
+        +(noEncontradas.length?'<div class="card" style="margin-top:10px;background:rgba(239,68,68,.06);border-color:rgba(239,68,68,.3)">'
+          +'<div style="color:var(--dan);font-weight:700;margin-bottom:8px">❌ '+noEncontradas.length+' no encontradas</div>'
+          +noEncontradas.map(function(o){return '<div style="font-size:11px;padding:2px 0">'+o+'</div>';}).join('')
+          +'</div>':'');
+      setHtml('lote-resultados',html);
+      updateBkBadge();
+    });
+  });
+}
+
+// ── BACKOFFICE EFECTIVIDAD ────────────────────────────────────────
+function renderBkEfectividad(){
+  var mes=getMesActivo();
+  setHtml('view-container','<div class="page-header"><div class="page-title">📊 Efectividad — '+getMesLabel(mes)+'</div></div><div class="content-area"><div id="bk-ef-content"><div class="loading"><div class="spinner"></div></div></div></div>');
+  ROOT_REF.child('novedades').once('value').then(function(snap){
+    var novs=[]; snap.forEach(function(ch){novs.push(Object.assign({_id:ch.key},ch.val()));});
+    // Filter by month based on fecha_carga
+    var r=getMesRange(mes);
+    var novMes=novs.filter(function(n){return n.fecha_carga>=r.start&&n.fecha_carga<r.end;});
+    var todayTs2=new Date();todayTs2.setHours(0,0,0,0);var todayT=todayTs2.getTime();
+    var novHoy=novMes.filter(function(n){return n.fecha_carga>=todayT;});
+    function calcStats(list){
+      var tipos={logistica:{total:0,gest:0},rechazo_nip:{total:0,gest:0},rechazo_titularidad:{total:0,gest:0},recogida_punto:{total:0,gest:0}};
+      list.forEach(function(n){
+        var t=n.tipo||'logistica';
+        if(!tipos[t])tipos[t]={total:0,gest:0};
+        tipos[t].total++;
+        if(n.estado==='gestionada')tipos[t].gest++;
+      });
+      var totTotal=list.length,totGest=list.filter(function(n){return n.estado==='gestionada';}).length;
+      return{tipos:tipos,totTotal:totTotal,totGest:totGest,pct:totTotal>0?Math.round((totGest/totTotal)*100):0};
+    }
+    var sMes=calcStats(novMes),sHoy=calcStats(novHoy);
+    function statBlock(title,s){
+      var tipoLabels={logistica:'🚚 Logística',rechazo_nip:'🔑 NIP errado',rechazo_titularidad:'👤 Titularidad',recogida_punto:'📦 Recogida en punto'};
+      var col=s.pct>=80?'var(--suc)':s.pct>=50?'var(--warn)':'var(--dan)';
+      return '<div class="card">'
+        +'<div class="card-title">'+title+'</div>'
+        +'<div style="text-align:center;margin-bottom:12px">'
+        +'<div style="font-size:48px;font-weight:900;color:'+col+'">'+s.pct+'%</div>'
+        +'<div style="font-size:11px;color:var(--mut)">'+s.totGest+' gestionadas de '+s.totTotal+' total</div>'
+        +'</div>'
+        +Object.entries(s.tipos).filter(function(e){return e[1].total>0;}).map(function(e){
+          var p=e[1].total>0?Math.round((e[1].gest/e[1].total)*100):0;
+          var c=p>=80?'var(--suc)':p>=50?'var(--warn)':'var(--dan)';
+          return '<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>'+tipoLabels[e[0]]+'</span><span style="font-weight:700;color:'+c+'">'+p+'% ('+e[1].gest+'/'+e[1].total+')</span></div><div class="progress-wrap"><div class="progress-fill" style="width:'+p+'%;background:'+c+'"></div></div></div>';
+        }).join('')
+        +'</div>';
+    }
+    setHtml('bk-ef-content',
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
+      +statBlock('📅 HOY',sHoy)
+      +statBlock('📆 '+getMesLabel(mes),sMes)
+      +'</div>'
+      // Editable pending list
+      +'<div class="card" style="margin-top:12px"><div class="card-title">✏️ Novedades pendientes — actualizar estado</div>'
+      +(novMes.filter(function(n){return n.estado==='pendiente';}).length
+        ?'<div class="tbl-wrap"><table><thead><tr><th>Tipo</th><th>Descripción</th><th>Cargada</th><th>Estado</th><th>Editar</th></tr></thead><tbody>'
+          +novMes.filter(function(n){return n.estado==='pendiente';}).map(function(n){
+            return '<tr><td>'+noveltyBadge(n.tipo)+'</td><td style="max-width:160px;font-size:10px">'+n.descripcion.slice(0,60)+'</td><td style="color:var(--mut)">'+fmtDateShort(n.fecha_carga)+'</td><td><span class="badge b-yellow">⏳ Pendiente</span></td>'
+              +'<td><button class="btn btn-suc btn-xs" onclick="bkMarcarGestionada(\''+n._id+'\')">✅ Resuelta</button></td></tr>';
+          }).join('')
+          +'</tbody></table></div>'
+        :'<div class="empty-state" style="padding:12px"><div class="empty-icon">🎉</div><div class="empty-text">Sin pendientes</div></div>')
+      +'</div>'
+    );
+  });
+}
+function bkMarcarGestionada(ventaId){
+  ROOT_REF.child('novedades/'+ventaId).update({estado:'gestionada',respuesta_agente:'Resuelto por backoffice',respuesta_fecha:Date.now()}).then(function(){
+    ROOT_REF.child('ventas/'+ventaId).update({novedad_sin_leer:false});
+    toast('✅ Marcada como gestionada','ok');
+    renderBkEfectividad();
   });
 }
 

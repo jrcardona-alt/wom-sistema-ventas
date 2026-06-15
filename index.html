@@ -232,7 +232,7 @@ textarea.f-input{resize:vertical;min-height:72px;line-height:1.5}
     </div>
     <div id="newpass-form-wrap" style="display:none">
       <div class="login-title">Crear contraseña</div>
-      <div class="login-sub">Es tu primer ingreso. Crea tu contraseña de acceso.</div>
+      <div class="login-sub">Es tu primer ingreso. Configura tu cuenta.</div>
       <div class="f-group">
         <label class="f-label">Nueva contraseña</label>
         <input class="f-input" id="np-pass1" type="password" placeholder="Mínimo 6 caracteres">
@@ -240,6 +240,11 @@ textarea.f-input{resize:vertical;min-height:72px;line-height:1.5}
       <div class="f-group">
         <label class="f-label">Confirmar contraseña</label>
         <input class="f-input" id="np-pass2" type="password" placeholder="Repite tu contraseña">
+      </div>
+      <div class="f-group">
+        <label class="f-label">🎂 Fecha de nacimiento</label>
+        <input class="f-input" id="np-birthday" type="date" placeholder="DD/MM/AAAA">
+        <div class="f-hint">Solo visible para el equipo — ¡para felicitarte!</div>
       </div>
       <div class="f-error hide" id="np-error"></div>
       <div style="margin-top:16px">
@@ -332,6 +337,8 @@ var FB_CFG = {
   appId:"1:795965579723:web:ec961c938c1c8e0984964e"
 };
 var DB_ROOT = "/wom_bpo";
+function fCOP(n){if(!n&&n!==0)return"—";return"$"+Math.round(n).toLocaleString("es-CO");}
+
 var DB, ROOT_REF;
 var SESSION = null; // {cedula, nombre, rol, activo}
 var LISTENERS = [];
@@ -406,13 +413,17 @@ function ventasDelMes(ventas,yyyymm){
 }
 function getMesOptions(){
   var opts='';
-  var now=new Date(),cur=getMesActivo();
-  var d=new Date(now.getFullYear(),now.getMonth(),1);
-  for(var i=0;i<8;i++){
-    var mm=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
-    opts+='<option value="'+mm+'"'+(mm===cur?' selected':'')+'>'+MESES_ES[d.getMonth()]+' '+d.getFullYear()+'</option>';
-    d.setMonth(d.getMonth()-1);
-  }
+  var cur=getMesActivo();
+  var start=new Date(2026,5,1); // June 2026
+  var now=new Date();
+  var end=new Date(now.getFullYear(),now.getMonth(),1);
+  var d=new Date(start);
+  var months=[];
+  while(d<=end){months.push(new Date(d));d.setMonth(d.getMonth()+1);}
+  months.reverse().forEach(function(md){
+    var mm=md.getFullYear()+'-'+String(md.getMonth()+1).padStart(2,'0');
+    opts+='<option value="'+mm+'"'+(mm===cur?' selected':'')+'>'+MESES_ES[md.getMonth()]+' '+md.getFullYear()+'</option>';
+  });
   return opts;
 }
 function mesSelector(){
@@ -599,8 +610,11 @@ function createPassword(){
   var p1=qs('np-pass1').value, p2=qs('np-pass2').value;
   if(!p1||p1.length<6){ showErr('np-error','Mínimo 6 caracteres'); return; }
   if(p1!==p2){ showErr('np-error','Las contraseñas no coinciden'); return; }
+  var bday=(qs('np-birthday')&&qs('np-birthday').value)||'';
   hashPass(p1).then(function(hash){
-    ROOT_REF.child('usuarios/'+loginCedula).update({password_hash:hash,primer_login:false}).then(function(){
+    var upd={password_hash:hash,primer_login:false};
+    if(bday)upd.fecha_nacimiento=bday;
+    ROOT_REF.child('usuarios/'+loginCedula).update(upd).then(function(){
       SESSION={cedula:loginCedula,nombre:loginUser.nombre,rol:loginUser.rol,activo:true};
       sessionStorage.setItem('wom_session',JSON.stringify(SESSION));
       loadApp();
@@ -645,6 +659,7 @@ function loadApp(){
   av.textContent=SESSION.nombre.charAt(0).toUpperCase();
   av.className='avatar '+(rol==='supervisor'?'av-sup':rol==='backoffice'?'av-bk':'av-ag');
   buildNav(rol);
+  checkBirthdaysToday();
   if(rol==='agente') loadAgente();
   else if(rol==='backoffice') loadBackoffice();
   else loadSupervisor();
@@ -657,6 +672,7 @@ function buildNav(rol){
       {id:'ag-nueva',icon:'📝',label:'Nueva venta'},
       {id:'ag-ventas',icon:'📋',label:'Mis ventas'},
       {id:'ag-conversion',icon:'📊',label:'Mi conversión'},
+      {id:'ag-cumple',icon:'🎂',label:'Mi cumpleaños'},
       {id:'ag-notifs',icon:'🔔',label:'Notificaciones'},
     ];
   } else if(rol==='backoffice'){
@@ -677,6 +693,7 @@ function buildNav(rol){
       {id:'sv-usuarios',icon:'⚙️',label:'Usuarios'},
       {id:'sv-meta',icon:'🎯',label:'Meta del equipo'},
       {id:'sv-calendario',icon:'📅',label:'Calendario'},
+      {id:'sv-cumple',icon:'🎂',label:'Cumpleaños'},
     ];
   }
   nav.innerHTML='<div class="nav-section">Menú</div>'+items.map(function(it){
@@ -696,6 +713,7 @@ function navTo(id){
   if(id==='ag-nueva') renderAgNuevaVenta();
   else if(id==='ag-ventas') renderAgMisVentas();
   else if(id==='ag-conversion') renderAgConversion();
+  else if(id==='ag-cumple') renderAgCumple();
   else if(id==='ag-notifs') renderAgNotifs();
   else if(id==='bk-cargar') renderBkCargar();
   else if(id==='bk-pendientes') renderBkPendientes();
@@ -710,6 +728,7 @@ function navTo(id){
   else if(id==='sv-usuarios') renderSvUsuarios();
   else if(id==='sv-meta') renderSvMeta();
   else if(id==='sv-calendario') renderSvCalendario();
+  else if(id==='sv-cumple') renderSvCumple();
 }
 
 // ════════════════════════════════════════
@@ -1405,7 +1424,7 @@ function renderSvDashboard(){
     }).join('');
     ROOT_REF.child('novedades').orderByChild('estado').equalTo('pendiente').once('value').then(function(novSnap){
       var novPend=0; novSnap.forEach(function(){ novPend++; });
-      var esimPend=ventasMes.filter(function(v){return v.tipo_simcard==='esim'&&v.esim_aprobada===null;}).length;
+      var esimPend=ventas.filter(function(v){return v.tipo_simcard==='esim'&&v.esim_aprobada!==true&&v.esim_aprobada!==false;}).length;
       setHtml('sv-dash-content',
         '<div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr))">'
         +'<div class="stat-card stat-blue"><div class="stat-label">Hoy</div><div class="stat-value">'+todayV.length+'</div></div>'
@@ -1431,7 +1450,7 @@ function renderSvEsim(){
     var esims=[];
     snap.forEach(function(ch){
       var v=ch.val();
-      if(v.tipo_simcard==='esim'&&v.esim_aprobada===null) esims.push(Object.assign({_id:ch.key},v));
+      if(v.tipo_simcard==='esim'&&v.esim_aprobada!==true&&v.esim_aprobada!==false) esims.push(Object.assign({_id:ch.key},v));
     });
     if(!esims.length){
       setHtml('sv-esim-list','<div class="empty-state"><div class="empty-icon">🎉</div><div class="empty-text">Sin ventas eSIM pendientes</div></div>');
@@ -2071,6 +2090,120 @@ function bkMarcarGestionada(ventaId){
     ROOT_REF.child('ventas/'+ventaId).update({novedad_sin_leer:false});
     toast('✅ Marcada como gestionada','ok');
     renderBkEfectividad();
+  });
+}
+
+// ════════════════════════════════════════
+//   CUMPLEAÑOS
+// ════════════════════════════════════════
+function nextBirthday(fecha_nac){
+  if(!fecha_nac)return null;
+  var parts=fecha_nac.split('-');
+  if(parts.length<3)return null;
+  var mes=parseInt(parts[1]),dia=parseInt(parts[2]);
+  var now=new Date();
+  var thisYear=new Date(now.getFullYear(),mes-1,dia);
+  var nextYear=new Date(now.getFullYear()+1,mes-1,dia);
+  var target=thisYear>=now?thisYear:nextYear;
+  var diff=Math.ceil((target-now)/(1000*60*60*24));
+  var isToday=diff===0||(now.getDate()===dia&&now.getMonth()===mes-1);
+  return{dias:isToday?0:diff,isToday:isToday,label:dia.toString().padStart(2,'0')+'/'+(mes).toString().padStart(2,'0')};
+}
+
+function renderSvCumple(){
+  setHtml('view-container','<div class="page-header"><div class="page-title">🎂 Cumpleaños del equipo</div><div class="page-sub">Fechas de cumpleaños de todos los agentes</div></div><div class="content-area"><div id="sv-cumple-list"><div class="loading"><div class="spinner"></div>Cargando...</div></div></div>');
+  ROOT_REF.child('usuarios').once('value').then(function(snap){
+    var users=[]; snap.forEach(function(ch){var u=ch.val();if(u.rol==='agente'&&u.fecha_nacimiento)users.push(Object.assign({ced:ch.key},u));});
+    if(!users.length){
+      setHtml('sv-cumple-list','<div class="empty-state"><div class="empty-icon">🎂</div><div class="empty-text">Ningún agente ha registrado su fecha de nacimiento aún</div><div class="empty-sub">Se registra en el primer ingreso al sistema</div></div>');
+      return;
+    }
+    // Sort by next birthday
+    users.forEach(function(u){u._next=nextBirthday(u.fecha_nacimiento);});
+    users.sort(function(a,b){
+      if(!a._next)return 1;if(!b._next)return -1;
+      return a._next.dias-b._next.dias;
+    });
+    var today=users.filter(function(u){return u._next&&u._next.isToday;});
+    var upcoming=users.filter(function(u){return u._next&&!u._next.isToday;});
+    var html='';
+    if(today.length){
+      html+='<div style="background:linear-gradient(135deg,rgba(245,158,11,.2),rgba(239,68,68,.1));border:2px solid rgba(245,158,11,.5);border-radius:14px;padding:20px;margin-bottom:16px;text-align:center">'
+        +'<div style="font-size:36px;margin-bottom:8px">🎉🎂🎉</div>'
+        +'<div style="font-size:18px;font-weight:700;color:#FCD34D;margin-bottom:4px">¡HOY es el cumpleaños de!</div>'
+        +'<div style="font-size:24px;font-weight:900;color:#fff">'+today.map(function(u){return u.nombre;}).join(' y ')+'</div>'
+        +'<div style="font-size:13px;color:rgba(255,255,255,.6);margin-top:6px">Del equipo con mucho cariño ❤️</div></div>';
+    }
+    html+='<div class="card"><div class="card-title">📅 Próximos cumpleaños</div>'
+      +'<div class="tbl-wrap"><table><thead><tr><th>Agente</th><th>Fecha</th><th>Días restantes</th></tr></thead><tbody>'
+      +upcoming.map(function(u){
+        var n=u._next;
+        var color=n.dias<=7?'var(--warn)':n.dias<=30?'var(--pri)':'var(--mut)';
+        return '<tr><td class="fw-600">'+u.nombre+'</td><td>'+n.label+'</td>'
+          +'<td><span style="font-weight:700;color:'+color+'">'+n.dias+' días</span></td></tr>';
+      }).join('')
+      +'</tbody></table></div></div>';
+    setHtml('sv-cumple-list',html);
+  });
+}
+
+function renderAgCumple(){
+  ROOT_REF.child('usuarios/'+SESSION.cedula).once('value').then(function(snap){
+    var u=snap.val()||{};
+    var next=nextBirthday(u.fecha_nacimiento);
+    setHtml('view-container',
+      '<div class="page-header"><div class="page-title">🎂 Mi cumpleaños</div></div>'
+      +'<div class="content-area">'
+      +(u.fecha_nacimiento
+        ?'<div class="card" style="max-width:400px;text-align:center">'
+          +'<div style="font-size:48px;margin-bottom:10px">🎂</div>'
+          +'<div style="font-size:14px;font-weight:600;color:var(--mut);margin-bottom:6px">Tu fecha de nacimiento</div>'
+          +'<div style="font-size:22px;font-weight:700;color:var(--txt);margin-bottom:16px">'+(next?next.label:'—')+'</div>'
+          +(next&&next.isToday
+            ?'<div style="font-size:28px;font-weight:900;color:var(--warn);animation:pulse 1s infinite">🎉 ¡FELIZ CUMPLEAÑOS! 🎉</div>'
+            +'<div style="font-size:13px;color:var(--mut);margin-top:8px">¡Que lo pases increíble! El equipo te felicita ❤️</div>'
+            :'<div style="font-size:42px;font-weight:900;background:linear-gradient(135deg,#6EE7B7,#818CF8);-webkit-background-clip:text;-webkit-text-fill-color:transparent">'+(next?next.dias:0)+'</div>'
+            +'<div style="font-size:13px;color:var(--mut)">días para tu próximo cumpleaños</div>'
+          )
+          +'</div>'
+        :'<div class="card" style="max-width:400px"><div class="card-title">Registra tu fecha de nacimiento</div>'
+          +'<div class="f-group"><label class="f-label">Fecha de nacimiento</label>'
+          +'<input class="f-input" type="date" id="ag-bday-input"></div>'
+          +'<button class="btn btn-pri btn-sm" style="margin-top:8px" onclick="guardarFechaNac()">Guardar</button>'
+          +'</div>'
+      )+'</div>'
+    );
+  });
+}
+function guardarFechaNac(){
+  var v=(qs('ag-bday-input').value||'').trim();
+  if(!v){toast('Selecciona tu fecha','err');return;}
+  ROOT_REF.child('usuarios/'+SESSION.cedula).update({fecha_nacimiento:v}).then(function(){
+    toast('🎂 Fecha guardada','ok');renderAgCumple();
+  });
+}
+
+// Check birthdays on load and show toast if someone has birthday today
+function checkBirthdaysToday(){
+  ROOT_REF.child('usuarios').once('value').then(function(snap){
+    var today=[];
+    snap.forEach(function(ch){
+      var u=ch.val();
+      if(u.fecha_nacimiento){
+        var parts=u.fecha_nacimiento.split('-');
+        if(parts.length>=3){
+          var now=new Date();
+          if(parseInt(parts[1])-1===now.getMonth()&&parseInt(parts[2])===now.getDate()){
+            today.push(u.nombre);
+          }
+        }
+      }
+    });
+    if(today.length){
+      setTimeout(function(){
+        toast('🎂 ¡Hoy es el cumpleaños de: '+today.join(', ')+'! 🎉','ok');
+      },2000);
+    }
   });
 }
 

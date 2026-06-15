@@ -335,6 +335,93 @@ var SESSION = null; // {cedula, nombre, rol, activo}
 var LISTENERS = []; // active firebase listeners to detach on logout
 
 // ════════════════════════════════════════
+//   COMISIONES + METAS
+// ════════════════════════════════════════
+var PLAN_SIN_IVA = {64990:52641.9, 54990:44541.9, 44990:36441.9};
+
+var COM_OB_ANT = [
+  {d:2300000,h:2799999,pct:16,com:368000,qA:50,bono:100000},
+  {d:2800000,h:3199999,pct:17,com:476000,qA:58,bono:150000},
+  {d:3200000,h:3599999,pct:18,com:576000,qA:66,bono:200000},
+  {d:3600000,h:3999999,pct:19,com:684000,qA:74,bono:250000},
+  {d:4000000,h:4399999,pct:20,com:800000,qA:82,bono:250000},
+  {d:4400000,h:4799999,pct:21,com:924000,qA:90,bono:250000},
+  {d:4800000,h:5199999,pct:22,com:1056000,qA:98,bono:250000},
+  {d:5200000,h:-1,     pct:23,com:1196000,qA:null,bono:null}
+];
+var COM_OB_NEW = [
+  {d:1800000,h:2299999,pct:15,com:270000,qA:40,bono:100000},
+  {d:2300000,h:2699999,pct:16,com:368000,qA:48,bono:150000},
+  {d:2700000,h:3099999,pct:17,com:459000,qA:56,bono:200000},
+  {d:3100000,h:3499999,pct:18,com:558000,qA:64,bono:250000},
+  {d:3500000,h:3899999,pct:19,com:665000,qA:72,bono:250000},
+  {d:3900000,h:4299999,pct:20,com:780000,qA:80,bono:250000},
+  {d:4300000,h:4699999,pct:21,com:903000,qA:88,bono:250000},
+  {d:4700000,h:-1,     pct:22,com:1034000,qA:null,bono:null}
+];
+var COM_IB = [
+  {min:55, max:84, piso:'Piso 1',com:230000},
+  {min:85, max:94, piso:'Piso 2',com:280000},
+  {min:95, max:104,piso:'Piso 3',com:330000},
+  {min:105,max:114,piso:'Piso 4',com:380000},
+  {min:115,max:124,piso:'Piso 5',com:430000},
+  {min:125,max:9999,piso:'Piso 6',com:480000}
+];
+
+// ── COMMISSION HELPERS ────────────────────────────────────────────
+function fCOPk(n){return n>=1000000?'$'+(n/1000000).toFixed(2)+'M':'$'+Math.round(n).toLocaleString('es-CO');}
+function ventaValor(v){
+  var base=PLAN_SIN_IVA[v.plan]||0;
+  return v.tipo_venta==='migracion'?base*0.5:base;
+}
+function calcComisionData(ventasGross, campana, tipo){
+  if(campana==='inbound'){
+    var cnt=ventasGross.reduce(function(s,v){return s+(v.tipo_venta==='migracion'?0.5:1);},0);
+    var row=COM_IB.find(function(r){return cnt>=r.min&&cnt<=r.max;})||null;
+    var nextRow=row?COM_IB[COM_IB.indexOf(row)+1]||null:COM_IB[0]||null;
+    var nextMin=nextRow?nextRow.min:null;
+    var billing=ventasGross.reduce(function(s,v){return s+ventaValor(v);},0);
+    return{campana:'inbound',cnt:cnt,billing:billing,row:row,nextRow:nextRow,
+      faltaCnt:nextRow?Math.max(0,nextRow.min-cnt):0,bono:0,qActivas:cnt};
+  } else {
+    var billing=ventasGross.reduce(function(s,v){return s+ventaValor(v);},0);
+    var tabla=tipo==='antiguo'?COM_OB_ANT:COM_OB_NEW;
+    var row=tabla.find(function(r){return billing>=r.d&&(r.h===-1||billing<=r.h);})||null;
+    var nextRow=row?tabla[tabla.indexOf(row)+1]||null:tabla[0]||null;
+    var qActivas=ventasGross.filter(function(v){return v.tipo_venta!=='migracion';}).length;
+    var bonoRow=tabla.slice().reverse().find(function(r){return r.qA&&qActivas>=r.qA;})||null;
+    var bono=bonoRow?bonoRow.bono:0;
+    var faltaF=nextRow?Math.max(0,nextRow.d-billing):0;
+    return{campana:'outbound',cnt:ventasGross.length,billing:billing,row:row,nextRow:nextRow,
+      faltaF:faltaF,qActivas:qActivas,bono:bono};
+  }
+}
+
+// ── PRODUCTIVE DAYS ───────────────────────────────────────────────
+function getHorasDia(fecha,festivos){
+  var dow=fecha.getDay();
+  if(dow===0)return 0;
+  var dd=String(fecha.getDate());
+  if(festivos&&festivos[dd])return 0;
+  return dow===6?4:8;
+}
+function getDiasInfo(anio,mes,festivos){
+  var total=new Date(anio,mes,0).getDate(),hoy=new Date();
+  var todayD=(anio===hoy.getFullYear()&&mes===(hoy.getMonth()+1))?hoy.getDate():total;
+  var totalH=0,elapsedH=0;
+  for(var d=1;d<=total;d++){
+    var f=new Date(anio,mes-1,d);
+    var h=getHorasDia(f,festivos);
+    totalH+=h;
+    if(d<=todayD)elapsedH+=h;
+  }
+  return{totalH:totalH,elapsedH:elapsedH,remH:totalH-elapsedH,
+    totalD:totalH/8,elapsedD:elapsedH/8,remD:(totalH-elapsedH)/8};
+}
+function getAniomes(){var n=new Date();return{anio:n.getFullYear(),mes:n.getMonth()+1};}
+
+
+// ════════════════════════════════════════
 //   UTILS
 // ════════════════════════════════════════
 function qs(id){ return document.getElementById(id); }
@@ -532,6 +619,8 @@ function buildNav(rol){
       {id:'sv-novedades',icon:'⚠️',label:'Novedades'},
       {id:'sv-agentes',icon:'👥',label:'Agentes'},
       {id:'sv-usuarios',icon:'⚙️',label:'Usuarios'},
+      {id:'sv-meta',icon:'🎯',label:'Meta del equipo'},
+      {id:'sv-calendario',icon:'📅',label:'Calendario'},
     ];
   }
   nav.innerHTML='<div class="nav-section">Menú</div>'+items.map(function(it){
@@ -559,6 +648,8 @@ function navTo(id){
   else if(id==='sv-novedades') renderSvNovedades();
   else if(id==='sv-agentes') renderSvAgentes();
   else if(id==='sv-usuarios') renderSvUsuarios();
+  else if(id==='sv-meta') renderSvMeta();
+  else if(id==='sv-calendario') renderSvCalendario();
 }
 
 // ════════════════════════════════════════
@@ -853,15 +944,18 @@ function verDetalleVenta(ventaId){
         // Mark as read
         ROOT_REF.child('ventas/'+ventaId).update({novedad_sin_leer:false});
       }
-      var ordenUpdate='';
-      if(!v.numero_orden){
-        ordenUpdate='<div class="form-section" style="margin-top:14px">'
-          +'<div class="form-section-title">🔢 Actualizar número de orden</div>'
-          +'<div style="display:flex;gap:8px">'
-          +'<input class="f-input" id="update-orden" placeholder="N° de orden" style="flex:1">'
-          +'<button class="btn btn-suc" onclick="actualizarOrden(\''+ventaId+'\')">Guardar</button>'
-          +'</div></div>';
-      }
+      var ordenUpdate='<div class="form-section" style="margin-top:14px">'
+          +'<div class="form-section-title">✏️ Actualizar venta</div>'
+          +'<div class="form-grid">'
+          +'<div class="f-group"><label class="f-label">N° de orden</label>'
+          +'<input class="f-input" id="update-orden" value="'+(v.numero_orden||'')+'" placeholder="N° de orden"></div>'
+          +'<div class="f-group"><label class="f-label">Estado</label>'
+          +'<select class="f-select" id="update-estado">'
+          +['pendiente','proceso_logistico','en_abd','gross','cancelada'].map(function(s){return '<option value="'+s+'"'+(v.estado===s?' selected':'')+'>'+s+'</option>';}).join('')
+          +'</select></div>'
+          +'</div>'
+          +'<button class="btn btn-suc btn-sm" onclick="agActualizarVenta(\''+ventaId+'\')">💾 Actualizar</button>'
+          +'</div>';
       openModal('<div class="modal-header"><span class="modal-title">Detalle de venta</span><button class="modal-close" onclick="closeModal()">×</button></div>'
         +'<div class="modal-body">'
         +'<div class="form-section"><div class="form-section-title">👤 Cliente</div>'
@@ -885,6 +979,15 @@ function verDetalleVenta(ventaId){
         +esimSection+novSection+ordenUpdate
         +'</div>',true);
     });
+  });
+}
+function agActualizarVenta(ventaId){
+  var orden=(qs('update-orden').value||'').trim();
+  var estado=qs('update-estado').value;
+  ROOT_REF.child('ventas/'+ventaId).update({numero_orden:orden,estado:estado,updated_at:Date.now()}).then(function(){
+    toast('✅ Venta actualizada','ok');
+    closeModal();
+    cargarMisVentas();
   });
 }
 function responderNovedad(ventaId){
@@ -911,49 +1014,113 @@ function actualizarOrden(ventaId){
 }
 
 function renderAgConversion(){
-  ROOT_REF.child('ventas').orderByChild('agente_cedula').equalTo(SESSION.cedula)
-    .once('value').then(function(snap){
-      var total=0,gross=0,byPlan={64990:0,54990:0,44990:0};
-      snap.forEach(function(ch){
-        var v=ch.val(); total++;
-        if(v.estado==='gross'){ gross++; byPlan[v.plan]=(byPlan[v.plan]||0)+1; }
+  var am=getAniomes();
+  ROOT_REF.child('config/calendario/'+am.anio+'-'+String(am.mes).padStart(2,'0')+'/festivos').once('value').then(function(fSnap){
+    var festivos=fSnap.val()||{};
+    var dias=getDiasInfo(am.anio,am.mes,festivos);
+    ROOT_REF.child('usuarios/'+SESSION.cedula).once('value').then(function(uSnap){
+      var usuario=uSnap.val()||{campana:'outbound',tipo:'antiguo'};
+      ROOT_REF.child('ventas').orderByChild('agente_cedula').equalTo(SESSION.cedula).once('value').then(function(snap){
+        var ventas=[]; snap.forEach(function(ch){ventas.push(Object.assign({_id:ch.key},ch.val()));});
+        var total=ventas.length;
+        var gross=ventas.filter(function(v){return v.estado==='gross';});
+        var pctConv=total>0?Math.round((gross.length/total)*100):0;
+        var colConv=pctConv>=75?'var(--suc)':pctConv>=50?'var(--warn)':'var(--dan)';
+        var cd=calcComisionData(gross,usuario.campana||'outbound',usuario.tipo||'antiguo');
+        var com=cd.row?cd.row.com:0;
+        var bono=cd.bono||0;
+        var totalEst=com+bono;
+        // Projection
+        var proj='—',projCom='—';
+        if(dias.elapsedH>0){
+          var pace=cd.campana==='inbound'?cd.cnt/dias.elapsedH:cd.billing/dias.elapsedH;
+          var projVal=pace*dias.totalH;
+          if(cd.campana==='inbound'){
+            var projRow=COM_IB.find(function(r){return projVal>=r.min&&projVal<=r.max;})||null;
+            proj=projVal.toFixed(1)+' ventas';
+            projCom=projRow?fCOP(projRow.com):fCOP(0);
+          } else {
+            var tabla=usuario.tipo==='antiguo'?COM_OB_ANT:COM_OB_NEW;
+            var projRow=tabla.find(function(r){return projVal>=r.d&&(r.h===-1||projVal<=r.h);})||null;
+            proj=fCOP(projVal);
+            projCom=projRow?fCOP(projRow.com):fCOP(0);
+          }
+        }
+        // Falta para siguiente piso
+        var faltaStr='';
+        if(cd.nextRow){
+          if(cd.campana==='inbound') faltaStr='Faltan <b>'+cd.faltaCnt.toFixed(1)+'</b> ventas para '+cd.nextRow.piso+' ('+fCOP(cd.nextRow.com)+')';
+          else faltaStr='Faltan <b>'+fCOP(cd.faltaF)+'</b> en factura para nivel '+fCOP(cd.nextRow.d)+' ('+fCOP(cd.nextRow.com)+')';
+        } else if(cd.row){ faltaStr='<span class="text-green">🎉 Nivel máximo alcanzado</span>'; }
+        else { faltaStr='Sin ventas GROSS aún — el primer piso requiere '+(cd.campana==='inbound'?COM_IB[0].min+' ventas':fCOP((usuario.tipo==='antiguo'?COM_OB_ANT:COM_OB_NEW)[0].d)+' en factura'); }
+        // Penalizadores info
+        var penStr='<div style="font-size:11px;color:var(--mut);line-height:1.8">'
+          +'⚠️ Asistencia &lt;90%: -30% com. &nbsp;|&nbsp; Calidad &lt;85%: -10%<br>'
+          +'⚠️ Bajas tempranas: -10% &nbsp;|&nbsp; AI: -50% cada una<br>'
+          +'⚠️ Órdenes limpias mín 70% (si no: -10%) &nbsp;|&nbsp; Migración: factura al 50%<br>'
+          +'🚫 PQR procedente: -100% &nbsp;|&nbsp; Malas prácticas: -100%</div>';
+        setHtml('view-container',
+          '<div class="page-header"><div class="page-title">📊 Mi comisión — Junio 2026</div>'
+          +'<div class="page-sub">Campaña: <b>'+(usuario.campana||'outbound').toUpperCase()+'</b> &nbsp;·&nbsp; Tipo: <b>'+(usuario.tipo||'antiguo')+'</b> &nbsp;·&nbsp; Días laborables: <b>'+dias.totalD.toFixed(1)+'</b> &nbsp;·&nbsp; Transcurridos: <b>'+dias.elapsedD.toFixed(1)+'</b></div></div>'
+          +'<div class="content-area">'
+          +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
+          // Left: commission status
+          +'<div>'
+          +'<div class="card" style="margin-bottom:12px">'
+          +'<div class="card-title">💰 Estado comisional actual</div>'
+          +'<div style="text-align:center;padding:16px 0">'
+          +(cd.row
+            ?'<div style="font-size:42px;font-weight:900;color:var(--suc)">'+fCOPk(com)+'</div>'
+             +'<div style="font-size:12px;color:var(--mut);margin-bottom:8px">comisión '+(cd.campana==='inbound'?cd.row.piso:'nivel '+cd.row.pct+'%')+'</div>'
+             +(bono>0?'<div style="font-size:20px;font-weight:700;color:var(--warn)">+ '+fCOP(bono)+' bono activas</div>':'' )
+             +'<div style="font-size:24px;font-weight:700;color:#FCD34D;margin-top:4px">= '+fCOPk(totalEst)+' estimado</div>'
+            :'<div style="font-size:28px;font-weight:700;color:var(--mut)">Sin piso aún</div><div style="font-size:12px;color:var(--mut)">Acumula más ventas GROSS</div>'
+          )+'</div>'
+          +'<div style="padding:0 4px">'
+          +(cd.campana==='inbound'
+            ?'<div class="detail-row"><span class="detail-label">Ventas GROSS efectivas</span><span class="detail-value fw-bold text-green">'+cd.cnt.toFixed(1)+'</span></div>'
+            :'<div class="detail-row"><span class="detail-label">Factura acumulada sin IVA</span><span class="detail-value fw-bold text-green">'+fCOP(cd.billing)+'</span></div>'
+             +'<div class="detail-row"><span class="detail-label">Activas (Port + LN)</span><span class="detail-value fw-bold">'+cd.qActivas+'</span></div>'
+          )
+          +'<div class="detail-row"><span class="detail-label">Falta para siguiente piso</span><span class="detail-value" style="font-size:11px">'+faltaStr+'</span></div>'
+          +'</div>'
+          +'<div class="divider"></div>'
+          +'<div style="font-size:11px;padding:0 2px"><b>📈 Proyección cierre mes:</b><br>'
+          +'<span style="color:var(--pri)">'+proj+'</span> → <span style="color:var(--warn);font-weight:700">'+projCom+' estimado</span>'
+          +'<div style="font-size:10px;color:var(--mut);margin-top:2px">Basado en tu ritmo actual ('+dias.elapsedD.toFixed(1)+' días de '+dias.totalD.toFixed(1)+')</div>'
+          +'</div>'
+          +'</div>'
+          // Conversion
+          +'<div class="card">'
+          +'<div class="card-title">🎯 Conversión</div>'
+          +'<div style="text-align:center;padding:8px 0 12px">'
+          +'<div style="font-size:48px;font-weight:900;color:'+colConv+'">'+pctConv+'%</div>'
+          +'<div style="font-size:11px;color:var(--mut)">'+gross.length+' GROSS de '+total+' ventas</div>'
+          +'<div class="conv-bar-wrap" style="margin:10px 0"><div class="conv-bar" style="width:'+Math.min(pctConv,100)+'%;background:'+colConv+'"></div></div>'
+          +'<div style="font-size:11px">'+( pctConv>=75?'<span class="badge b-green">✅ Meta cumplida (75%)</span>':pctConv>=50?'<span class="badge b-yellow">⚠️ En desarrollo</span>':'<span class="badge b-red">🔴 Por debajo de meta</span>')+'</div>'
+          +'</div>'
+          +'</div>'
+          +'</div>'
+          // Right: table + penalizers
+          +'<div>'
+          +'<div class="card" style="margin-bottom:12px">'
+          +'<div class="card-title">📋 Tabla comisional ('+(usuario.campana==='inbound'?'Inbound':('Outbound '+usuario.tipo))+')</div>'
+          +(cd.campana==='inbound'
+            ?'<div class="tbl-wrap"><table><thead><tr><th>Mín ventas</th><th>Piso</th><th>Comisión</th></tr></thead><tbody>'
+              +COM_IB.map(function(r){return '<tr style="background:'+(cd.row&&cd.row.piso===r.piso?'rgba(16,185,129,.12)':'')+'"><td>'+r.min+'+</td><td>'+r.piso+'</td><td style="color:var(--suc);font-weight:600">'+fCOP(r.com)+'</td></tr>';}).join('')
+              +'</tbody></table></div>'
+            :'<div class="tbl-wrap"><table><thead><tr><th>Factura desde</th><th>%</th><th>Comisión</th><th>Q Act.</th><th>Bono</th></tr></thead><tbody>'
+              +(usuario.tipo==='antiguo'?COM_OB_ANT:COM_OB_NEW).map(function(r){var cur=cd.row&&cd.row.d===r.d;return '<tr style="background:'+(cur?'rgba(16,185,129,.12)':'')+'"><td>'+fCOP(r.d)+'</td><td>'+r.pct+'%</td><td style="color:var(--suc);font-weight:600">'+fCOP(r.com)+'</td><td>'+(r.qA||'—')+'</td><td>'+(r.bono?fCOP(r.bono):'—')+'</td></tr>';}).join('')
+              +'</tbody></table></div>'
+          )
+          +'</div>'
+          +'<div class="card"><div class="card-title">⚠️ Penalizadores</div>'+penStr+'</div>'
+          +'</div>'
+          +'</div></div>'
+        );
       });
-      var pct=total>0?Math.round((gross/total)*100):0;
-      var cls=pct>=70?'conv-green':pct>=50?'conv-yellow':'conv-red';
-      setHtml('view-container',`
-        <div class="page-header"><div class="page-title">📊 Mi conversión</div><div class="page-sub">Porcentaje de ventas GROSS sobre total registradas</div></div>
-        <div class="content-area">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-            <div class="card">
-              <div class="card-title">Conversión global</div>
-              <div class="conv-wrap ${cls}">
-                <div class="conv-number">${pct}%</div>
-                <div class="conv-label">${gross} GROSS de ${total} ventas totales</div>
-                <div class="conv-bar-wrap" style="margin-top:16px"><div class="conv-bar" style="width:${Math.min(pct,100)}%"></div></div>
-                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--mut);margin-top:4px"><span>0%</span><span style="font-weight:700;color:${pct>=70?'#6EE7B7':pct>=50?'#FCD34D':'#FCA5A5'}">${pct}%</span><span>100%</span></div>
-              </div>
-              <div class="divider"></div>
-              <div style="font-size:11px;padding:0 8px">
-                ${pct>=70?'<span class="badge b-green">✅ Excelente conversión</span>':pct>=50?'<span class="badge b-yellow">⚠️ Conversión en desarrollo</span>':'<span class="badge b-red">🔴 Conversión crítica</span>'}
-                <div style="color:var(--mut);margin-top:8px;line-height:1.7">
-                  Meta mínima: <b style="color:var(--txt)">70%</b><br>
-                  Tu conversión: <b style="color:${pct>=70?'#6EE7B7':pct>=50?'#FCD34D':'#FCA5A5'}">${pct}%</b>
-                </div>
-              </div>
-            </div>
-            <div class="card">
-              <div class="card-title">Ventas GROSS por plan</div>
-              ${Object.entries(byPlan).map(function(p){ return '<div style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:12px">$'+Number(p[0]).toLocaleString('es-CO')+'</span><span style="font-size:12px;font-weight:700">'+p[1]+'</span></div><div class="progress-wrap"><div class="progress-fill" style="width:'+(gross>0?Math.round((p[1]/gross)*100):0)+'%;background:var(--pri)"></div></div></div>'; }).join('')}
-              <div class="divider"></div>
-              <div class="stats-grid" style="grid-template-columns:1fr 1fr;gap:10px">
-                <div class="stat-card stat-blue"><div class="stat-label">Total ventas</div><div class="stat-value">${total}</div></div>
-                <div class="stat-card stat-green"><div class="stat-label">GROSS</div><div class="stat-value">${gross}</div></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      `);
     });
+  });
 }
 
 function renderAgNotifs(){
@@ -1424,13 +1591,19 @@ function modalCrearUsuario(){
     +'<div class="form-grid">'
     +'<div class="f-group col-span-2"><label class="f-label">Nombre completo</label><input class="f-input" id="cu-nombre" placeholder="Nombre y apellidos"></div>'
     +'<div class="f-group"><label class="f-label">Número de documento</label><input class="f-input" id="cu-cedula" placeholder="Cédula" type="text"></div>'
-    +'<div class="f-group"><label class="f-label">Rol</label><select class="f-select" id="cu-rol"><option value="agente">Agente</option><option value="backoffice">Backoffice</option><option value="supervisor">Supervisor</option></select></div>'
+    +'<div class="f-group"><label class="f-label">Rol</label><select class="f-select" id="cu-rol" onchange="toggleCampanaFields(\'cu\')">'
+    +'<option value="agente">Agente</option><option value="backoffice">Backoffice</option><option value="supervisor">Supervisor</option></select></div>'
     +'</div>'
+    +'<div id="cu-ag-fields"><div class="form-grid" style="margin-top:8px">'
+    +'<div class="f-group"><label class="f-label">Campaña</label><select class="f-select" id="cu-campana"><option value="outbound">Outbound</option><option value="inbound">Inbound</option></select></div>'
+    +'<div class="f-group"><label class="f-label">Tipo</label><select class="f-select" id="cu-tipo"><option value="antiguo">Antiguo</option><option value="nuevo">Nuevo</option></select></div>'
+    +'</div></div>'
     +'<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:8px;padding:10px 12px;font-size:11px;color:#FCD34D;margin-top:8px">⚠️ El usuario deberá crear su contraseña en el primer ingreso.</div>'
     +'<div class="f-error hide" id="cu-error"></div>'
     +'</div>'
     +'<div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-pri" onclick="crearUsuario()">Crear usuario</button></div>');
 }
+
 function crearUsuario(){
   var nombre=(qs('cu-nombre').value||'').trim();
   var cedula=(qs('cu-cedula').value||'').trim();
@@ -1439,7 +1612,7 @@ function crearUsuario(){
   if(!nombre||!cedula){ err.textContent='Completa todos los campos'; err.classList.remove('hide'); return; }
   ROOT_REF.child('usuarios/'+cedula).once('value').then(function(snap){
     if(snap.exists()){ err.textContent='Ya existe un usuario con ese documento'; err.classList.remove('hide'); return; }
-    ROOT_REF.child('usuarios/'+cedula).set({nombre:nombre,cedula:cedula,rol:rol,activo:true,password_hash:'',primer_login:true,created_at:Date.now(),created_by:SESSION.cedula})
+    ROOT_REF.child('usuarios/'+cedula).set({nombre:nombre,cedula:cedula,rol:rol,activo:true,password_hash:'',primer_login:true,created_at:Date.now(),created_by:SESSION.cedula,campana:qs('cu-campana')?qs('cu-campana').value:'outbound',tipo:qs('cu-tipo')?qs('cu-tipo').value:'antiguo'})
       .then(function(){ toast('✅ Usuario creado','ok'); closeModal(); cargarUsuarios(); });
   });
 }
@@ -1449,23 +1622,51 @@ function modalEditarUsuario(cedula){
     openModal('<div class="modal-header"><span class="modal-title">Editar usuario</span><button class="modal-close" onclick="closeModal()">×</button></div>'
       +'<div class="modal-body">'
       +'<div class="f-group"><label class="f-label">Nombre completo</label><input class="f-input" id="eu-nombre" value="'+u.nombre+'"></div>'
-      +'<div class="f-group"><label class="f-label">Rol</label><select class="f-select" id="eu-rol">'
+      +'<div class="f-group"><label class="f-label">Rol</label><select class="f-select" id="eu-rol" onchange="toggleCampanaFields(\'eu\')">'
       +'<option value="agente"'+(u.rol==='agente'?' selected':'')+'>Agente</option>'
       +'<option value="backoffice"'+(u.rol==='backoffice'?' selected':'')+'>Backoffice</option>'
       +'<option value="supervisor"'+(u.rol==='supervisor'?' selected':'')+'>Supervisor</option>'
       +'</select></div>'
+      +'<div id="eu-ag-fields" style="'+(u.rol==='agente'?'':'display:none')+'">'
+      +'<div class="form-grid" style="margin-top:8px">'
+      +'<div class="f-group"><label class="f-label">Campaña</label><select class="f-select" id="eu-campana"><option value="outbound"'+(u.campana!=='inbound'?' selected':'')+'>Outbound</option><option value="inbound"'+(u.campana==='inbound'?' selected':'')+'>Inbound</option></select></div>'
+      +'<div class="f-group"><label class="f-label">Tipo</label><select class="f-select" id="eu-tipo"><option value="antiguo"'+(u.tipo!=='nuevo'?' selected':'')+'>Antiguo</option><option value="nuevo"'+(u.tipo==='nuevo'?' selected':'')+'>Nuevo</option></select></div>'
+      +'</div></div>'
       +'</div>'
-      +'<div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>'
-      +'<button class="btn btn-pri" onclick="guardarEdicionUsuario(\''+cedula+'\')">Guardar</button></div>');
+      +'<div class="modal-footer">'
+      +'<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>'
+      +'<button class="btn btn-pri" onclick="guardarEdicionUsuario(\''+cedula+'\')">Guardar</button>'
+      +'<button class="btn btn-dan btn-sm" onclick="eliminarUsuario(\''+cedula+'\',\''+u.nombre+'\')">🗑 Eliminar</button>'
+      +'</div>');
   });
 }
+
 function guardarEdicionUsuario(cedula){
   var nombre=(qs('eu-nombre').value||'').trim();
   var rol=qs('eu-rol').value;
   if(!nombre){ toast('Ingresa el nombre','err'); return; }
-  ROOT_REF.child('usuarios/'+cedula).update({nombre:nombre,rol:rol}).then(function(){
+  var updData={nombre:nombre,rol:rol};
+  var euc=qs('eu-campana'),eut=qs('eu-tipo');
+  if(euc)updData.campana=euc.value;
+  if(eut)updData.tipo=eut.value;
+  ROOT_REF.child('usuarios/'+cedula).update(updData).then(function(){
     toast('✅ Usuario actualizado','ok');
     closeModal(); cargarUsuarios();
+  });
+}
+
+function toggleCampanaFields(prefix){
+  var rol=qs(prefix+'-rol').value;
+  var fields=qs(prefix+'-ag-fields');
+  if(fields) fields.style.display=rol==='agente'?'block':'none';
+}
+function eliminarUsuario(cedula,nombre){
+  closeModal();
+  showConfirm('Eliminar usuario','¿Eliminar permanentemente a '+nombre+'? Esta acción no se puede deshacer.',function(){
+    ROOT_REF.child('usuarios/'+cedula).remove().then(function(){
+      toast('Usuario '+nombre+' eliminado','warn');
+      cargarUsuarios();
+    });
   });
 }
 function resetearClave(cedula,nombre){
@@ -1521,6 +1722,156 @@ function updateBkBadge(){
     if(badge){ badge.textContent=cnt; if(cnt>0) badge.classList.remove('hide'); else badge.classList.add('hide'); }
   });
 }
+
+function renderSvMeta(){
+  var am=getAniomes();
+  ROOT_REF.child('config/calendario/'+am.anio+'-'+String(am.mes).padStart(2,'0')+'/festivos').once('value').then(function(fSnap){
+    var festivos=fSnap.val()||{};
+    var dias=getDiasInfo(am.anio,am.mes,festivos);
+    ROOT_REF.child('ventas').once('value').then(function(snap){
+      ROOT_REF.child('usuarios').orderByChild('rol').equalTo('agente').once('value').then(function(uSnap){
+        var ventas=[]; snap.forEach(function(ch){ventas.push(Object.assign({_id:ch.key},ch.val()));});
+        var agentes={}; uSnap.forEach(function(ch){var u=ch.val();agentes[ch.key]=u;});
+        // Team totals
+        var totalCant=ventas.length;
+        var totalGross=ventas.filter(function(v){return v.estado==='gross';}).length;
+        var totalBilling=ventas.filter(function(v){return v.estado==='gross';}).reduce(function(s,v){return s+ventaValor(v);},0);
+        var pctConv=totalCant>0?Math.round((totalGross/totalCant)*100):0;
+        var colConv=pctConv>=75?'var(--suc)':pctConv>=50?'var(--warn)':'var(--dan)';
+        // Per-agent rows
+        var agRows='';
+        var agData={};
+        ventas.forEach(function(v){
+          if(!agData[v.agente_cedula]) agData[v.agente_cedula]={nombre:v.agente_nombre,cedula:v.agente_cedula,total:0,gross:0,billing:0};
+          agData[v.agente_cedula].total++;
+          if(v.estado==='gross'){agData[v.agente_cedula].gross++;agData[v.agente_cedula].billing+=ventaValor(v);}
+        });
+        agRows=Object.values(agData).sort(function(a,b){return b.gross-a.gross;}).map(function(ag){
+          var u=agentes[ag.cedula]||{campana:'outbound',tipo:'antiguo'};
+          var gross=ventas.filter(function(v){return v.agente_cedula===ag.cedula&&v.estado==='gross';});
+          var cd=calcComisionData(gross,u.campana||'outbound',u.tipo||'antiguo');
+          var com=cd.row?cd.row.com:0;var bono=cd.bono||0;
+          var pct=ag.total>0?Math.round((ag.gross/ag.total)*100):0;
+          var col=pct>=75?'var(--suc)':pct>=50?'var(--warn)':'var(--dan)';
+          return '<tr><td class="fw-600">'+ag.nombre+'</td>'
+            +'<td><span class="badge '+(u.campana==='inbound'?'b-purple':'b-blue')+'">'+(u.campana||'OB').toUpperCase()+'</span> <span class="badge b-gray">'+(u.tipo||'ant')+'</span></td>'
+            +'<td class="td-center">'+ag.total+'</td>'
+            +'<td class="td-center" style="color:var(--suc);font-weight:700">'+ag.gross+'</td>'
+            +'<td class="td-center" style="color:'+col+';font-weight:700">'+pct+'%</td>'
+            +'<td class="td-center" style="color:var(--pri)">'+fCOP(ag.billing)+'</td>'
+            +'<td class="td-center" style="color:'+(com>0?'var(--suc)':'var(--mut)')+'">'+fCOP(com)+'</td>'
+            +'<td class="td-center" style="color:var(--warn)">'+fCOP(bono)+'</td>'
+            +'<td class="td-center" style="color:#FCD34D;font-weight:700">'+fCOP(com+bono)+'</td>'
+            +'</tr>';
+        }).join('');
+        setHtml('view-container',
+          '<div class="page-header"><div class="page-title">🎯 Meta del equipo — '+am.anio+'/'+String(am.mes).padStart(2,'0')+'</div>'
+          +'<div class="page-sub">Días laborables: '+dias.totalD.toFixed(1)+' · Transcurridos: '+dias.elapsedD.toFixed(1)+' · Restantes: '+dias.remD.toFixed(1)+'</div></div>'
+          +'<div class="content-area">'
+          +'<div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr));margin-bottom:16px">'
+          +'<div class="stat-card stat-blue"><div class="stat-label">Cantadas total</div><div class="stat-value">'+totalCant+'</div></div>'
+          +'<div class="stat-card stat-green"><div class="stat-label">GROSS total</div><div class="stat-value">'+totalGross+'</div></div>'
+          +'<div class="stat-card '+(pctConv>=75?'stat-green':pctConv>=50?'stat-warn':'stat-red')+'"><div class="stat-label">Conversión equipo</div><div class="stat-value">'+pctConv+'%</div></div>'
+          +'<div class="stat-card stat-blue"><div class="stat-label">Factura acum.</div><div class="stat-value" style="font-size:16px">'+fCOPk(totalBilling)+'</div></div>'
+          +'</div>'
+          +'<div class="card"><div class="card-title">💰 Comisiones por agente</div>'
+          +'<div class="tbl-wrap"><table><thead><tr>'
+          +'<th>Agente</th><th>Campaña</th><th class="td-center">Cant.</th><th class="td-center">GROSS</th><th class="td-center">Conv.</th><th class="td-center">Factura</th><th class="td-center">Comisión</th><th class="td-center">Bono</th><th class="td-center">Total est.</th>'
+          +'</tr></thead><tbody>'+agRows+'</tbody></table></div></div>'
+          +'</div>'
+        );
+      });
+    });
+  });
+}
+
+function renderSvCalendario(){
+  var am=getAniomes();
+  var yyyymm=am.anio+'-'+String(am.mes).padStart(2,'0');
+  ROOT_REF.child('config/calendario/'+yyyymm+'/festivos').once('value').then(function(snap){
+    var festivos=snap.val()||{};
+    ROOT_REF.child('usuarios').orderByChild('rol').equalTo('agente').once('value').then(function(uSnap){
+      var agentes=[]; uSnap.forEach(function(ch){agentes.push({cedula:ch.key,nombre:ch.val().nombre});});
+      var diasInfo=getDiasInfo(am.anio,am.mes,festivos);
+      // Build calendar HTML
+      var festList=Object.keys(festivos).sort(function(a,b){return Number(a)-Number(b);}).map(function(dd){
+        var f=festivos[dd];
+        var trabN=f.trabajaron?Object.keys(f.trabajaron).length:0;
+        return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--brd)">'
+          +'<span class="badge b-red">'+dd+'/'+String(am.mes).padStart(2,'0')+'</span>'
+          +'<span class="fw-600">'+f.nombre+'</span>'
+          +(trabN>0?'<span class="badge b-yellow">'+trabN+' trabajaron</span>':'')
+          +'<button class="btn btn-dan btn-xs" style="margin-left:auto" onclick="eliminarFestivo(\''+yyyymm+'\',\''+dd+'\')">Eliminar</button>'
+          +'<button class="btn btn-ghost btn-xs" onclick="modalFestivoTrabajaron(\''+yyyymm+'\',\''+dd+'\','+JSON.stringify(f.trabajaron||{}).replace(/"/g,"'")+')">Ver quién trabajó</button>'
+          +'</div>';
+      }).join('');
+      setHtml('view-container',
+        '<div class="page-header"><div class="page-title">📅 Calendario laboral — '+am.anio+'/'+String(am.mes).padStart(2,'0')+'</div>'
+        +'<div class="page-sub">Días laborables totales: <b>'+diasInfo.totalD.toFixed(1)+'</b> · Transcurridos: <b>'+diasInfo.elapsedD.toFixed(1)+'</b></div></div>'
+        +'<div class="content-area">'
+        +'<div class="card" style="max-width:550px;margin-bottom:14px">'
+        +'<div class="card-title">➕ Agregar festivo</div>'
+        +'<div class="form-grid">'
+        +'<div class="f-group"><label class="f-label">Día del mes</label><input class="f-input" type="number" id="fest-dia" min="1" max="31" placeholder="Ej: 16"></div>'
+        +'<div class="f-group"><label class="f-label">Nombre del festivo</label><input class="f-input" id="fest-nombre" placeholder="Ej: Corpus Christi"></div>'
+        +'</div>'
+        +'<button class="btn btn-pri btn-sm" style="margin-top:4px" onclick="agregarFestivo(\''+yyyymm+'\')">Agregar festivo</button>'
+        +'</div>'
+        +'<div class="card">'
+        +'<div class="card-title">🔴 Festivos configurados</div>'
+        +(festList||'<div class="empty-state" style="padding:16px"><div class="empty-icon">📅</div><div class="empty-text">Sin festivos agregados</div></div>')
+        +'</div></div>'
+      );
+    });
+  });
+}
+
+function agregarFestivo(yyyymm){
+  var dia=qs('fest-dia').value;
+  var nombre=(qs('fest-nombre').value||'').trim();
+  if(!dia||!nombre){toast('Completa día y nombre del festivo','err');return;}
+  ROOT_REF.child('config/calendario/'+yyyymm+'/festivos/'+dia).set({nombre:nombre,trabajaron:{}}).then(function(){
+    toast('Festivo agregado','ok');
+    renderSvCalendario();
+  });
+}
+function eliminarFestivo(yyyymm,dia){
+  ROOT_REF.child('config/calendario/'+yyyymm+'/festivos/'+dia).remove().then(function(){
+    toast('Festivo eliminado','warn');
+    renderSvCalendario();
+  });
+}
+function modalFestivoTrabajaron(yyyymm,dia,trabajaron){
+  ROOT_REF.child('usuarios').orderByChild('rol').equalTo('agente').once('value').then(function(snap){
+    var agentes=[];snap.forEach(function(ch){agentes.push({cedula:ch.key,nombre:ch.val().nombre});});
+    var rows=agentes.map(function(ag){
+      var h=trabajaron&&trabajaron[ag.cedula]?trabajaron[ag.cedula]:0;
+      return '<tr><td class="fw-600">'+ag.nombre+'</td>'
+        +'<td><input type="number" class="f-input" id="ftw-'+ag.cedula+'" value="'+h+'" min="0" max="8" step="1" style="width:80px;padding:4px 8px;font-size:12px"></td>'
+        +'</tr>';
+    }).join('');
+    openModal('<div class="modal-header"><span class="modal-title">¿Quién trabajó el día '+dia+'?</span><button class="modal-close" onclick="closeModal()">×</button></div>'
+      +'<div class="modal-body">'
+      +'<div class="f-hint" style="margin-bottom:10px">Ingresa 0 = no trabajó, 4 = medio turno, 8 = turno completo</div>'
+      +'<div class="tbl-wrap"><table><thead><tr><th>Agente</th><th>Horas trabajadas</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      +'</div>'
+      +'<div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>'
+      +'<button class="btn btn-suc" onclick="guardarTrabajaron(\''+yyyymm+'\',\''+dia+'\')">Guardar</button></div>');
+  });
+}
+function guardarTrabajaron(yyyymm,dia){
+  ROOT_REF.child('usuarios').orderByChild('rol').equalTo('agente').once('value').then(function(snap){
+    var data={};
+    snap.forEach(function(ch){
+      var el=qs('ftw-'+ch.key);
+      if(el){var h=parseInt(el.value)||0;if(h>0)data[ch.key]=h;}
+    });
+    ROOT_REF.child('config/calendario/'+yyyymm+'/festivos/'+dia+'/trabajaron').set(data).then(function(){
+      toast('Guardado','ok');closeModal();renderSvCalendario();
+    });
+  });
+}
+
 function startRealtimeListeners(){
   var rol=SESSION.rol;
   if(rol==='agente'){

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>WOM Colombia · Sistema BPO</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%23030812'/><text y='72' x='8' font-size='72' font-family='Arial Black' font-weight='900' fill='%2300D4FF'>W</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%2300D4FF'/><stop offset='100%25' stop-color='%237B2FFF'/></linearGradient></defs><rect width='100' height='100' rx='20' fill='%230A0F1E'/><text y='74' x='6' font-size='78' font-family='Arial Black,sans-serif' font-weight='900' fill='url(%23g)' filter='url(%23glow)'><filter id='glow'><feGaussianBlur stdDeviation='3' result='blur'/><feMerge><feMergeNode in='blur'/><feMergeNode in='SourceGraphic'/></feMerge></filter>W</text></svg>">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23060D1F'/><text y='72' x='10' font-size='75' font-family='Arial' font-weight='900' fill='url(%23g)'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%2300D4FF'/><stop offset='1' stop-color='%237B2FFF'/></linearGradient></defs>W</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -68,14 +68,44 @@ body::after {
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse at 10% 10%, rgba(123,47,255,0.12) 0%, transparent 50%),
-    radial-gradient(ellipse at 90% 90%, rgba(0,212,255,0.08) 0%, transparent 50%),
-    radial-gradient(ellipse at 50% 50%, rgba(255,45,120,0.04) 0%, transparent 60%);
+    radial-gradient(ellipse at 10% 10%, rgba(123,47,255,0.10) 0%, transparent 45%),
+    radial-gradient(ellipse at 90% 90%, rgba(0,212,255,0.07) 0%, transparent 45%),
+    radial-gradient(ellipse at 50% 20%, rgba(255,45,120,0.05) 0%, transparent 40%);
   pointer-events: none;
   z-index: 0;
+  animation: bgPulse 12s ease-in-out infinite alternate;
+}
+@keyframes bgPulse {
+  0%   { background-position: 0% 0%, 100% 100%, 50% 20%; opacity: 0.8; }
+  50%  { background-position: 15% 15%, 85% 85%, 55% 30%; opacity: 1; }
+  100% { background-position: 5% 20%, 95% 80%, 45% 10%; opacity: 0.9; }
+}
+/* Animated blobs */
+.blob {
+  position: fixed; border-radius: 50%; filter: blur(80px);
+  pointer-events: none; z-index: 0; opacity: 0.6; animation: blobMove ease-in-out infinite alternate;
+}
+.blob1 { width:500px; height:500px; background:rgba(123,47,255,0.12); top:-100px; left:-100px; animation-duration:15s; }
+.blob2 { width:400px; height:400px; background:rgba(0,212,255,0.08); bottom:-80px; right:-80px; animation-duration:18s; animation-delay:3s; }
+.blob3 { width:300px; height:300px; background:rgba(255,45,120,0.06); top:40%; left:40%; animation-duration:22s; animation-delay:6s; }
+@keyframes blobMove {
+  from { transform: translate(0,0) scale(1); }
+  to   { transform: translate(40px,30px) scale(1.15); }
 }
 
 .hide { display: none !important; }
+
+
+/* ── GENDER THEMES ── */
+[data-gender="femenino"] { --pri:#FF3CAC; --sec:#C026D3; --acc:#FF7B54; --suc:#FF8FA3; }
+[data-gender="femenino"] .sidebar-brand { background: linear-gradient(135deg,#FF3CAC,#C026D3); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+[data-gender="femenino"] .nav-item.active { color:#FF3CAC; border-right-color:#FF3CAC; background:linear-gradient(90deg,rgba(255,60,172,0.08),transparent); }
+[data-gender="femenino"] .btn-pri { background:linear-gradient(135deg,#FF3CAC,#C026D3); }
+[data-gender="femenino"] .f-input:focus { border-color:#FF3CAC; box-shadow:0 0 0 3px rgba(255,60,172,0.12); }
+
+[data-gender="lgbtq"] { --pri:#FF6B6B; --sec:#FFB800; --acc:#00D4FF; }
+[data-gender="lgbtq"] .sidebar-brand { background:linear-gradient(135deg,#FF6B6B,#FFB800,#00FF9D,#00D4FF,#7B2FFF); background-size:300%; -webkit-background-clip:text; -webkit-text-fill-color:transparent; animation:gradMove 3s linear infinite; }
+[data-gender="lgbtq"] .btn-pri { background:linear-gradient(135deg,#FF6B6B,#FFB800,#00FF9D,#00D4FF,#7B2FFF); background-size:300%; animation:gradMove 4s linear infinite; }
 
 /* ── SCROLLBAR ── */
 ::-webkit-scrollbar { width: 3px; height: 3px; }
@@ -142,10 +172,15 @@ body::after {
 }
 .brand {
   font-size: 38px; font-weight: 900; letter-spacing: 8px;
-  background: linear-gradient(135deg, var(--pri), var(--sec), var(--acc));
-  background-size: 200%;
+  background: linear-gradient(135deg, #00F2FF, #7B2FFF, #FF2D78, #00F2FF);
+  background-size: 300%;
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   animation: gradMove 4s linear infinite;
+  filter: drop-shadow(0 0 20px rgba(0,212,255,0.5));
+}
+.brand-sub {
+  font-size: 10px; letter-spacing: 4px; text-transform: uppercase; margin-top:5px;
+  color: rgba(255,255,255,0.5);
 }
 .brand-sub { font-size: 10px; color: var(--txt3); letter-spacing: 3px; text-transform: uppercase; margin-top:4px; }
 .login-logo { text-align: center; margin-bottom: 32px; }
@@ -233,8 +268,11 @@ textarea.f-input { resize: vertical; min-height: 80px; line-height: 1.6; }
 .sidebar-logo { padding: 24px 20px; border-bottom: 1px solid var(--brd); }
 .sidebar-brand {
   font-size: 22px; font-weight: 900; letter-spacing: 5px;
-  background: linear-gradient(135deg, var(--pri), var(--sec));
+  background: linear-gradient(135deg, #00F2FF, #7B2FFF, #FF2D78);
+  background-size: 200%;
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  animation: gradMove 4s linear infinite;
+  filter: drop-shadow(0 0 12px rgba(0,212,255,0.4));
 }
 .sidebar-role { font-size: 9px; color: var(--txt3); text-transform: uppercase; letter-spacing: 2px; margin-top: 4px; }
 
@@ -580,7 +618,8 @@ tr:hover td { background: rgba(0,212,255,0.03); }
     </div>
     <nav class="sidebar-nav" id="sidebar-nav"></nav>
     <div class="sidebar-footer">
-      <div style="font-size:10px;color:var(--mut);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px">📅 Mes activo</div>
+      <button class="btn btn-ghost" style="width:100%;font-size:12px;margin-bottom:8px" onclick="modalAvatarPicker()">🖼 Mi avatar</button>
+      <div style="font-size:10px;color:var(--txt3);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px">📅 Mes activo</div>
       <div id="mes-sel-wrap"></div>
       <button class="btn btn-ghost" style="width:100%;font-size:12px" onclick="logout()">🚪 Cerrar sesión</button>
     </div>
@@ -676,37 +715,78 @@ var voiceReady=false;
 function initVoice(){
   if(window.speechSynthesis){window.speechSynthesis.getVoices();voiceReady=true;}
 }
+function getBestVoice(genero){
+  var vs=window.speechSynthesis.getVoices();
+  var isFem=genero==='femenino'||genero==='lgbtq';
+  // Priority: Google natural voices > Microsoft > any Spanish
+  var google=vs.filter(function(v){return v.lang.startsWith('es')&&v.name.toLowerCase().includes('google');});
+  var msft=vs.filter(function(v){return v.lang.startsWith('es')&&(v.name.toLowerCase().includes('microsoft')||v.name.toLowerCase().includes('pablo')||v.name.toLowerCase().includes('laura')||v.name.toLowerCase().includes('jorge')||v.name.toLowerCase().includes('maria'));});
+  var all=vs.filter(function(v){return v.lang.startsWith('es');});
+  // Try to find gendered voice
+  if(isFem){
+    var fem=google.find(function(v){return v.name.toLowerCase().includes('female')||v.name.toLowerCase().includes('woman');})
+      ||msft.find(function(v){return v.name.toLowerCase().includes('laura')||v.name.toLowerCase().includes('maria')||v.name.toLowerCase().includes('female');})
+      ||google[0]||msft[0]||all[0];
+    return fem;
+  } else {
+    var mal=google.find(function(v){return v.name.toLowerCase().includes('male')||v.name.toLowerCase().includes('man');})
+      ||msft.find(function(v){return v.name.toLowerCase().includes('pablo')||v.name.toLowerCase().includes('jorge')||v.name.toLowerCase().includes('male');})
+      ||google[0]||msft[0]||all[0];
+    return mal;
+  }
+}
 function speak(msg,rate,pitch){
   try{
     window.speechSynthesis.cancel();
+    var gen=SESSION&&SESSION.genero?SESSION.genero:'masculino';
+    var isFem=gen==='femenino';
     var u=new SpeechSynthesisUtterance(msg);
-    u.lang='es-CO';u.rate=rate||0.88;u.pitch=pitch||1.05;u.volume=0.88;
-    var vs=window.speechSynthesis.getVoices();
-    var v=vs.find(function(x){return x.lang==='es-CO'&&x.name.toLowerCase().includes('google');})||
-          vs.find(function(x){return x.lang==='es-CO';})||
-          vs.find(function(x){return x.lang.startsWith('es');});
+    u.lang='es-CO';
+    u.rate=rate||(isFem?0.92:0.88);
+    u.pitch=pitch||(isFem?1.15:0.92);
+    u.volume=0.90;
+    var v=getBestVoice(gen);
     if(v)u.voice=v;
     window.speechSynthesis.speak(u);
   }catch(e){}
 }
 function speakLater(msg,delay){setTimeout(function(){speak(msg);},delay||800);}
 function welcomeVoice(nombre){
-  var msgs=[
-    'Bienvenido '+nombre+'. El equipo está listo para dar el máximo hoy.',
-    ''+nombre+'! Listo para comisionar? Cada venta cuenta.',
-    'Qué bueno tenerte '+nombre+'. Hoy es un buen día para liderar.',
-    'Hola '+nombre+'! Arrancamos con todo. Las ventas nos esperan.',
+  var gen=SESSION&&SESSION.genero?SESSION.genero:'masculino';
+  var isFem=gen==='femenino';
+  var first=(nombre||'').split(' ')[0];
+  var msgs=isFem?[
+    'Bienvenida de vuelta '+first+'! El equipo te estaba esperando.',
+    'Hola '+first+'! Hoy es tu día. Las ventas te esperan.',
+    ''+first+'! Lista para dar lo mejor? Cada venta suma!',
+    'Qué bueno tenerte '+first+'! Arrancamos con toda la energía.',
+  ]:[
+    'Bienvenido '+first+'! El equipo está listo para dar el máximo hoy.',
+    ''+first+'! Listo para comisionar? Cada venta cuenta.',
+    'Qué bueno tenerte '+first+'! Hoy es un buen día para liderar.',
+    'Hola '+first+'! Arrancamos con todo. Las ventas nos esperan.',
   ];
   var msg=msgs[Math.floor(Math.random()*msgs.length)];
-  setTimeout(function(){speak(msg,0.85,1.08);},1600);
+  setTimeout(function(){speak(msg,isFem?0.92:0.85,isFem?1.15:0.95);},1800);
 }
 function saleVoice(nombre,plan,tipo){
-  var first=nombre.split(' ')[0];
-  var planMsg=plan===64990?first+', esa es la venta que más cuenta. Sigue así!':
-    plan===54990?'Buena venta '+first+'. Si puedes, apunta al plan de 64.990.':
-    'Vendiste '+first+', pero ese plan es el más barato. La próxima apunta más alto!';
-  if(tipo==='migracion')planMsg='Migración registrada '+first+'. Recuerda que vale la mitad.';
-  speakLater(planMsg,700);
+  var first=(nombre||SESSION.nombre||'').split(' ')[0];
+  var planMsg='';
+  var p=typeof plan==='number'?plan:parseInt(plan)||0;
+  if(tipo==='migracion'){
+    planMsg=first+', migración registrada! Recuerda que cuenta la mitad para comisionar.';
+    playSound('logistics');
+  } else if(p===64990){
+    planMsg='Así se hace '+first+'! Plan 64.990, esa es la venta que más cuenta para tu comisión!';
+    playSound('good_plan');
+  } else if(p===54990){
+    planMsg='Buena venta '+first+'! Si en la próxima puedes, apunta al 64.990, suma más.';
+    playSound('sale');
+  } else {
+    planMsg='Venta registrada '+first+'! Ese es el plan más barato. La próxima apunta más alto!';
+    playSound('cheap_plan');
+  }
+  if(planMsg) setTimeout(function(){speak(planMsg);},900);
 }
 function grossVoice(nombre){
   var first=nombre.split(' ')[0];
@@ -727,6 +807,54 @@ function quartileVoice(nombre,q,dir){
 // ════════════════════════════════════════
 //   INTRO ANIMATION
 // ════════════════════════════════════════
+
+// ── AVATAR SYSTEM ────────────────────────────────────────────────
+var AVATARS = {
+  masculino:  ['🦁','🐯','🐺','🦅','🐉','⚡','🔥','🚀','🎯','💎','🌊','🛡️'],
+  femenino:   ['🦋','🌸','🌺','🌻','🦊','🌙','⭐','🌈','🌹','🦄','🌟','💫'],
+  lgbtq:      ['🌈','🦋','🌸','⭐','💫','✨','🎪','🦚','🦜','🌺','🎭','🎨']
+};
+function getAvatarList(genero){ return AVATARS[genero]||AVATARS.masculino; }
+function renderSidebarAvatar(){
+  var av=document.getElementById('sb-avatar');
+  if(!av)return;
+  if(SESSION.avatar&&SESSION.avatar.length>0){
+    av.textContent=SESSION.avatar;
+    av.style.fontSize='22px';
+    av.style.background=SESSION.genero==='femenino'?'linear-gradient(135deg,#FF3CAC,#C026D3)':SESSION.genero==='lgbtq'?'linear-gradient(135deg,#FF6B6B,#FFB800,#00FF9D,#00D4FF)':'linear-gradient(135deg,#00D4FF,#7B2FFF)';
+  }
+}
+function modalAvatarPicker(){
+  var gen=SESSION.genero||'masculino';
+  var list=getAvatarList(gen);
+  var grid=list.map(function(a){
+    return '<div onclick="selectAvatar(\''+a+'\')" style="cursor:pointer;font-size:36px;width:56px;height:56px;display:flex;align-items:center;justify-content:center;border-radius:12px;border:2px solid var(--brd);background:var(--card);transition:all .2s;'+(SESSION.avatar===a?'border-color:var(--pri);background:rgba(0,212,255,0.1);':'')+'" onmouseover="this.style.transform=\'scale(1.15)\'" onmouseout="this.style.transform=\'scale(1)\'">'+a+'</div>';
+  }).join('');
+  openModal('<div class="modal-header"><span class="modal-title">🖼 Elige tu avatar</span><button class="modal-close" onclick="closeModal()">×</button></div>'
+    +'<div class="modal-body">'
+    +'<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px">'+grid+'</div>'
+    +'<div style="font-size:11px;color:var(--txt3)">Selecciona un avatar para tu perfil</div>'
+    +'</div>');
+}
+function selectAvatar(emoji){
+  SESSION.avatar=emoji;
+  sessionStorage.setItem('wom_session',JSON.stringify(SESSION));
+  ROOT_REF.child('usuarios/'+SESSION.cedula).update({avatar:emoji});
+  closeModal();
+  renderSidebarAvatar();
+  toast('Avatar actualizado '+emoji,'ok');
+}
+
+function applyGenderTheme(genero){
+  document.getElementById('v-app').setAttribute('data-gender',genero||'masculino');
+  SESSION.genero=genero||'masculino';
+  // Update avatar class
+  var av=document.getElementById('sb-avatar');
+  if(!av)return;
+  if(genero==='femenino'){av.className='avatar';av.style.background='linear-gradient(135deg,#FF3CAC,#C026D3)';}
+  else if(genero==='lgbtq'){av.className='avatar';av.style.background='linear-gradient(135deg,#FF6B6B,#FFB800,#00FF9D,#00D4FF)';}
+  else{av.className='avatar av-'+SESSION.rol;}
+}
 function runIntro(nombre){
   playSound('login');
   if(nombre)welcomeVoice(nombre);
@@ -1104,7 +1232,7 @@ function createPassword(){
     var upd={password_hash:hash,primer_login:false};
     if(bday)upd.fecha_nacimiento=bday;
     ROOT_REF.child('usuarios/'+loginCedula).update(upd).then(function(){
-      SESSION={cedula:loginCedula,nombre:loginUser.nombre,rol:loginUser.rol,activo:true};
+      SESSION={cedula:loginCedula,nombre:loginUser.nombre,rol:loginUser.rol,activo:true,genero:loginUser.genero||'masculino',avatar:loginUser.avatar||''};
       sessionStorage.setItem('wom_session',JSON.stringify(SESSION));
       loadApp();
     });
@@ -1149,6 +1277,8 @@ function loadApp(){
   av.className='avatar '+(rol==='supervisor'?'av-sup':rol==='backoffice'?'av-bk':'av-ag');
   buildNav(rol);
   runIntro(SESSION.nombre);
+  applyGenderTheme(SESSION.genero||SESSION.gender||'masculino');
+  renderSidebarAvatar();
   checkBirthdaysToday();
   if(rol==='agente') loadAgente();
   else if(rol==='backoffice') loadBackoffice();
@@ -2278,6 +2408,7 @@ function modalCrearUsuario(){
     +'<div class="f-group"><label class="f-label">Rol</label><select class="f-select" id="cu-rol" onchange="toggleCampanaFields(\'cu\')">'
     +'<option value="agente">Agente</option><option value="backoffice">Backoffice</option><option value="supervisor">Supervisor</option></select></div>'
     +'</div>'
+    +'<div class="f-group" style="margin-top:8px"><label class="f-label">Sexo / Identidad</label><select class="f-select" id="cu-genero"><option value="masculino">👨 Masculino</option><option value="femenino">👩 Femenino</option><option value="lgbtq">🌈 LGBTQ+</option></select></div>'
     +'<div id="cu-ag-fields"><div class="form-grid" style="margin-top:8px">'
     +'<div class="f-group"><label class="f-label">Campaña</label><select class="f-select" id="cu-campana"><option value="outbound">Outbound</option><option value="inbound">Inbound</option></select></div>'
     +'<div class="f-group"><label class="f-label">Tipo</label><select class="f-select" id="cu-tipo"><option value="antiguo">Antiguo</option><option value="nuevo">Nuevo</option></select></div>'
@@ -2296,7 +2427,7 @@ function crearUsuario(){
   if(!nombre||!cedula){ err.textContent='Completa todos los campos'; err.classList.remove('hide'); return; }
   ROOT_REF.child('usuarios/'+cedula).once('value').then(function(snap){
     if(snap.exists()){ err.textContent='Ya existe un usuario con ese documento'; err.classList.remove('hide'); return; }
-    ROOT_REF.child('usuarios/'+cedula).set({nombre:nombre,cedula:cedula,rol:rol,activo:true,password_hash:'',primer_login:true,created_at:Date.now(),created_by:SESSION.cedula,campana:qs('cu-campana')?qs('cu-campana').value:'outbound',tipo:qs('cu-tipo')?qs('cu-tipo').value:'antiguo'})
+    ROOT_REF.child('usuarios/'+cedula).set({nombre:nombre,cedula:cedula,rol:rol,activo:true,password_hash:'',primer_login:true,created_at:Date.now(),created_by:SESSION.cedula,campana:qs('cu-campana')?qs('cu-campana').value:'outbound',tipo:qs('cu-tipo')?qs('cu-tipo').value:'antiguo',genero:qs('cu-genero')?qs('cu-genero').value:'masculino',avatar:''}).then
       .then(function(){ toast('✅ Usuario creado','ok'); closeModal(); cargarUsuarios(); });
   });
 }
@@ -2306,7 +2437,8 @@ function modalEditarUsuario(cedula){
     openModal('<div class="modal-header"><span class="modal-title">Editar usuario</span><button class="modal-close" onclick="closeModal()">×</button></div>'
       +'<div class="modal-body">'
       +'<div class="f-group"><label class="f-label">Nombre completo</label><input class="f-input" id="eu-nombre" value="'+u.nombre+'"></div>'
-      +'<div class="f-group"><label class="f-label">Rol</label><select class="f-select" id="eu-rol" onchange="toggleCampanaFields(\'eu\')">'
+      +'<div class="f-group"><label class="f-label">Sexo / Identidad</label><select class="f-select" id="eu-genero"><option value="masculino"'+(u.genero==="masculino"||!u.genero?' selected':'')+'>👨 Masculino</option><option value="femenino"'+(u.genero==="femenino"?' selected':'')+'>👩 Femenino</option><option value="lgbtq"'+(u.genero==="lgbtq"?' selected':'')+'>🌈 LGBTQ+</option></select></div>'
+    +'<div class="f-group"><label class="f-label">Rol</label><select class="f-select" id="eu-rol" onchange="toggleCampanaFields(\'eu\')">'
       +'<option value="agente"'+(u.rol==='agente'?' selected':'')+'>Agente</option>'
       +'<option value="backoffice"'+(u.rol==='backoffice'?' selected':'')+'>Backoffice</option>'
       +'<option value="supervisor"'+(u.rol==='supervisor'?' selected':'')+'>Supervisor</option>'
@@ -2330,9 +2462,10 @@ function guardarEdicionUsuario(cedula){
   var rol=qs('eu-rol').value;
   if(!nombre){ toast('Ingresa el nombre','err'); return; }
   var updData={nombre:nombre,rol:rol};
-  var euc=qs('eu-campana'),eut=qs('eu-tipo');
+  var euc=qs('eu-campana'),eut=qs('eu-tipo'),eug=qs('eu-genero');
   if(euc)updData.campana=euc.value;
   if(eut)updData.tipo=eut.value;
+  if(eug)updData.genero=eug.value;
   ROOT_REF.child('usuarios/'+cedula).update(updData).then(function(){
     toast('✅ Usuario actualizado','ok');
     closeModal(); cargarUsuarios();
@@ -2838,17 +2971,22 @@ document.addEventListener('DOMContentLoaded',function(){
   firebase.initializeApp(FB_CFG);
   DB = firebase.database();
   ROOT_REF = DB.ref(DB_ROOT);
-  // Check session
-  try{
-    var s=sessionStorage.getItem('wom_session');
-    if(s){ SESSION=JSON.parse(s); loadApp(); startRealtimeListeners(); return; }
-  }catch(e){}
-  // Check if system has users
-  checkSetup(function(){
-    // Show login
-    qs('l-cedula').addEventListener('keydown',function(e){ if(e.key==='Enter') loginStep(); });
-    qs('l-pass').addEventListener('keydown',function(e){ if(e.key==='Enter') loginStep(); });
-  });
+
+  // ── ALWAYS PLAY INTRO on page load ──
+  playSound('login');
+  setTimeout(function(){
+    var intro=document.getElementById('intro-screen');
+    if(intro){ intro.classList.add('out'); setTimeout(function(){intro.remove();},900); }
+    // After intro, check session
+    try{
+      var s=sessionStorage.getItem('wom_session');
+      if(s){ SESSION=JSON.parse(s); loadApp(); startRealtimeListeners(); return; }
+    }catch(e){}
+    checkSetup(function(){
+      qs('l-cedula').addEventListener('keydown',function(e){ if(e.key==='Enter') loginStep(); });
+      qs('l-pass').addEventListener('keydown',function(e){ if(e.key==='Enter') loginStep(); });
+    });
+  },2400);
 });
 </script>
 </body>
